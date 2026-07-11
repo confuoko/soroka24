@@ -1,0 +1,126 @@
+# Локальная разработка: docker-compose up  --  поднимает весь каркас одной командой.
+#
+# Контейнеры:
+#   инфраструктура (готовые образы): postgres, rabbitmq, redis
+#   core   (FastAPI + Celery):        core-api, core-worker-urgent, core-worker-regular
+#   client (Django):                  client-web
+#
+# core-worker-urgent и core-worker-regular собираются из ОДНОГО образа core и
+# отличаются только очередью, которую слушают (-Q urgent / -Q regular).
+
+services:
+  # ------------------------------------------------------------------ infra
+  # Реляционная БД. Хранит данные сервисов (пользователи, дела, события).
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Брокер сообщений: очереди задач Celery + шина событий между core и client.
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - "5672:5672"      # AMQP
+      - "15672:15672"    # management UI: http://localhost:15672
+    healthcheck:
+      # ping проверяет только что нода жива; check_port_connectivity — что порт 5672
+      # уже принимает подключения (иначе воркеры ловят одну transient-ошибку на старте).
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  # Хранилище результатов Celery-задач + кэш / rate-limit в будущем.
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ------------------------------------------------------------------ core
+  # HTTP API core (FastAPI): принимает запросы от client, отдаёт данные по делам.
+  core-api:
+    build: ./services/core
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+    ports:
+      - "8000:8000"      # http://localhost:8000/ping
+    volumes:
+      - ./services/core:/app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Celery-воркер СРОЧНОЙ очереди: парсит только что добавленные дела (быстрый отклик).
+  core-worker-urgent:
+    build: ./services/core
+    # срочная очередь: свежие дела от новых пользователей — быстрый отклик
+    command: celery -A app.celery_app worker -Q urgent -l info --concurrency=2
+    environment:
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+    volumes:
+      - ./services/core:/app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Celery-воркер РЯДОВОЙ очереди: фоновый ежедневный обход существующих дел.
+  core-worker-regular:
+    build: ./services/core
+    # рядовая очередь: фоновый ежедневный обход существующих дел
+    command: celery -A app.celery_app worker -Q regular -l info --concurrency=4
+    environment:
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+    volumes:
+      - ./services/core:/app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ------------------------------------------------------------------ client
+  # Веб-сервис (Django): регистрация, фронт, боты. Пока — страница-заглушка.
+  client-web:
+    build: ./services/client
+    command: python manage.py runserver 0.0.0.0:8080
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: ${DJANGO_DEBUG}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+    ports:
+      - "8080:8080"      # http://localhost:8080/
+    volumes:
+      - ./services/client:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
