@@ -12,3 +12,9 @@ CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:63
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql+psycopg2://soroka:soroka@localhost:5432/soroka"
 )
+
+# Доступ к админке SQLAdmin (логин/пароль и секрет для сессии-cookie).
+# Дефолты — только для локальной разработки, в проде задать через env!
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
+ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY", "dev-admin-secret-change-me")
