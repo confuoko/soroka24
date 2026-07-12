@@ -5,3 +5,4 @@ redis==5.2.1
 sqlalchemy==2.0.51
 alembic==1.18.5
 psycopg2-binary==2.9.12
+playwright==1.61.0

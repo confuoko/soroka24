@@ -5,6 +5,7 @@
 """
 import enum
 import uuid
+from contextlib import contextmanager
 from datetime import date, datetime
 
 from sqlalchemy import (
@@ -40,6 +41,20 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
+@contextmanager
+def session_scope():
+    """Сессия БД как контекст-менеджер: commit при успехе, rollback при ошибке."""
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 # Base — общий предок всех моделей; хранит метаданные таблиц (их читает Alembic).
 class Base(DeclarativeBase):
     pass
@@ -52,6 +67,14 @@ class SideType(str, enum.Enum):
     PLAINTIFF = "Истец"
     DEFENDANT = "Ответчик"
     OTHER = "Другое"
+
+
+# Статус задачи поиска/синхронизации дела по УИД.
+class SearchStatus(str, enum.Enum):
+    PENDING = "pending"    # создана, ждёт обработки
+    RUNNING = "running"    # выполняется
+    SUCCESS = "success"    # дело найдено и сохранено
+    FAILED = "failed"      # не удалось (после всех попыток)
 
 
 # --- Связующие таблицы many-to-many ------------------------------------------
@@ -90,12 +113,16 @@ class Case(Base):
 
     # Порядковый уникальный номер записи (первичный ключ).
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    # Ссылка на дело на сайте суда; уникальна — повтор ссылки ведёт на то же дело.
-    url: Mapped[str] = mapped_column(String, unique=True, index=True)
+    # УИД дела с сайта суда (например, 77MS0466-01-2026-003751-93) — уникальный бизнес-ключ.
+    uid: Mapped[str] = mapped_column(String, unique=True, index=True)
+    # Ссылка на дело на сайте суда; уникальна, но может отсутствовать (у части дел ссылки нет).
+    url: Mapped[str | None] = mapped_column(String, unique=True, index=True)
     # Код дела: необязательный, может повторяться у разных дел (потому без unique).
     code: Mapped[str | None] = mapped_column(String)
     # Номер заявления (необязательный).
     application_number: Mapped[str | None] = mapped_column(String)
+    # Номер входящего документа (необязательный).
+    incoming_number: Mapped[str | None] = mapped_column(String)
     # Дата поступления дела (необязательная).
     receipt_date: Mapped[date | None] = mapped_column(Date)
     # Категория дела (необязательная).
@@ -337,3 +364,36 @@ class CourtSession(Base):
     basis: Mapped[str | None] = mapped_column(String)
 
     case: Mapped["Case"] = relationship(back_populates="court_sessions")
+
+
+class SearchTask(Base):
+    """Задача поиска/синхронизации дела по УИД: статус, попытки, результат."""
+
+    __tablename__ = "search_task"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Искомый УИД (не unique — по одному делу может быть несколько синхронизаций).
+    uid: Mapped[str] = mapped_column(String, index=True)
+    # Текущий статус задачи.
+    status: Mapped[SearchStatus] = mapped_column(
+        Enum(SearchStatus), default=SearchStatus.PENDING
+    )
+    # Найденное/созданное дело; при удалении дела ссылка обнуляется (SET NULL).
+    case_id: Mapped[int | None] = mapped_column(
+        ForeignKey("case.id", ondelete="SET NULL"), index=True
+    )
+    # Сколько было попыток зайти на страницу.
+    attempts: Mapped[int] = mapped_column(default=0)
+    # HTTP-статус последнего захода на страницу (200/403/…), если известен.
+    page_status: Mapped[int | None] = mapped_column()
+    # Текст последней ошибки (необязательный).
+    last_error: Mapped[str | None] = mapped_column(Text)
+    # Когда последний раз пытались зайти на страницу.
+    last_attempt_at: Mapped[datetime | None] = mapped_column()
+    # Когда задача создана и последний раз обновлялась.
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now()
+    )
+
+    case: Mapped["Case | None"] = relationship()
