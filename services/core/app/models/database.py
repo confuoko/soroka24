@@ -109,10 +109,18 @@ class Case(Base):
         server_default=func.now(), onupdate=func.now()
     )
 
+    # Группа связанных дел; при удалении группы поле обнуляется (SET NULL), дело живёт.
+    case_link_id: Mapped[int | None] = mapped_column(
+        ForeignKey("case_link.id", ondelete="SET NULL"), index=True
+    )
+
     # Справочники many-to-many: у дела их может быть несколько.
     courts: Mapped[list["Court"]] = relationship(secondary=case_court)
     judges: Mapped[list["Judge"]] = relationship(secondary=case_judge)
     sides: Mapped[list["Side"]] = relationship(secondary=case_side)
+
+    # Группа, в которую входит дело (все дела группы связаны между собой).
+    case_link: Mapped["CaseLink | None"] = relationship(back_populates="cases")
 
     # Дочерние записи: удаляются вместе с делом (CASCADE + очистка «сирот»).
     events: Mapped[list["Event"]] = relationship(
@@ -129,6 +137,28 @@ class Case(Base):
     )
     court_sessions: Mapped[list["CourtSession"]] = relationship(
         back_populates="case", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+    @property
+    def related_cases(self) -> list["Case"]:
+        """Другие дела из той же группы (пустой список, если группа не задана)."""
+        if self.case_link is None:
+            return []
+        return [c for c in self.case_link.cases if c is not self]
+
+
+class CaseLink(Base):
+    """Группа связанных дел: хранит список дел, которые считаются связанными между собой."""
+
+    __tablename__ = "case_link"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Когда группа создана в БД.
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+    # Дела, входящие в группу (все они связаны друг с другом).
+    cases: Mapped[list["Case"]] = relationship(
+        back_populates="case_link", passive_deletes=True
     )
 
 
