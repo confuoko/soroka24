@@ -91,7 +91,8 @@ class CourtAdmin(ModelView, model=Court):
 
     name = "Суд"
     name_plural = "Суды"
-    column_list = [Court.id, Court.name, Court.zone, Court.parser_type]
+    column_list = [Court.id, Court.code, Court.name, Court.level, Court.region]
+    column_searchable_list = [Court.code, Court.name, Court.region]
 
 
 class JudgeAdmin(ModelView, model=Judge):

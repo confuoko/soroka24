@@ -11,8 +11,8 @@ import urllib.request
 from pathlib import Path
 
 # Значения по умолчанию — сохранить главную страницу поиска mos-sud.ru.
-DEFAULT_URL = "https://mos-sud.ru/search?_cb=1783851843.9991"
-DEFAULT_FILENAME = "main_search_page.html"
+DEFAULT_URL = "https://sudrf.ru/index.php?id=300&act=go_ms_search&searchtype=ms&var=true&ms_type=ms&court_subj=0"
+DEFAULT_FILENAME = "mir_court_list_full.html"
 
 # Корень сервиса core (на уровень выше папки scripts) и папка для фикстур.
 CORE_ROOT = Path(__file__).resolve().parent.parent

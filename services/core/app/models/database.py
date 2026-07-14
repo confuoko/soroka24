@@ -77,6 +77,14 @@ class SearchStatus(str, enum.Enum):
     FAILED = "failed"      # не удалось (после всех попыток)
 
 
+# Уровень (звено) суда — по нему различаем справочники судов разных инстанций.
+class CourtLevel(str, enum.Enum):
+    MIRSUD = "mirsud"    # мировой суд
+    GENERAL = "general"  # суд общей юрисдикции (районный/городской)
+    APPEAL = "appeal"    # апелляционный
+    KAS = "kas"          # кассационный
+
+
 # --- Связующие таблицы many-to-many ------------------------------------------
 # Таблицы-связки нужны для связи «многие-ко-многим»: у дела много судов/судей/сторон, а каждый из них — во многих делах.
 # ondelete="CASCADE" на обоих концах => удаление любого конца стирает только строку-связь, дело и справочник живут.
@@ -195,12 +203,14 @@ class Court(Base):
     __tablename__ = "court"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Классификационный код суда (напр. 01MS0001) — уникальный бизнес-ключ, по нему upsert.
+    code: Mapped[str] = mapped_column(String, unique=True, index=True)
     # Название суда (обязательное).
     name: Mapped[str] = mapped_column(String)
-    # Зона/регион суда (необязательное).
-    zone: Mapped[str | None] = mapped_column(String)
-    # Тип страницы суда — по нему выбирается парсер (необязательное).
-    parser_type: Mapped[str | None] = mapped_column(String)
+    # Уровень (звено) суда: мировой / общей юрисдикции / апелляция / кассация.
+    level: Mapped[CourtLevel] = mapped_column(Enum(CourtLevel))
+    # Регион (субъект РФ), к которому относится суд.
+    region: Mapped[str] = mapped_column(String)
     # Базовый URL сайта суда (необязательное).
     base_url: Mapped[str | None] = mapped_column(String)
 
