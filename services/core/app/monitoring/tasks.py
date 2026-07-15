@@ -4,6 +4,8 @@ sync_case — синхронизация дела по УИД: сходить б
 разобрать её (пока заглушка) и создать/обновить Case. Тяжёлая часть (Chromium)
 вынесена из API в фоновую задачу; API лишь ставит задачу и отдаёт её id.
 """
+from celery.utils.log import get_task_logger
+
 from app.celery_app import celery_app
 from app.courts import (
     CaseNotFound,
@@ -18,6 +20,8 @@ from app.repositories import (
     JudgeRepository,
     SearchTaskRepository,
 )
+
+logger = get_task_logger(__name__)
 
 
 def _record_error(task_id: int, error: str, page_status=None) -> None:
@@ -82,9 +86,11 @@ def sync_case(self, task_id: int) -> None:
             case = CaseRepository(session).upsert_by_uid(uid, data)
             if court not in case.courts:  # идемпотентно при повторной синхронизации
                 case.courts.append(court)
+                logger.info("Найден и привязан суд: %s (%s) к делу %s", court.name, court.code, uid)
             for judge in JudgeRepository(session).get_or_create_many(data.get("judge_names", [])):
                 if judge not in case.judges:
                     case.judges.append(judge)
+                    logger.info("Привязан судья: %s к делу %s", judge.full_name, uid)
             case_id = case.id
     except NewCourtException as exc:
         # Новый суд — повторять бессмысленно, помечаем задачу проваленной.
