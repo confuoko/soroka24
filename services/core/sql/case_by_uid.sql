@@ -1,0 +1,94 @@
+-- Просмотр дела и всех привязанных к нему сущностей по УИД.
+-- Открой в DBeaver (SQL Editor), выполни нужный запрос (Ctrl+Enter).
+--
+-- !!! УИД — это СТРОКА, всегда в ОДИНАРНЫХ КАВЫЧКАХ: '77MS0466-01-2026-003751-93'.
+--     Без кавычек Postgres примет начало за число и выдаст
+--     "trailing junk after numeric literal".
+--
+-- Чтобы посмотреть другое дело — замени значение УИД (по одному месту на запрос,
+-- отмечено «<-- УИД ЗДЕСЬ»).
+
+
+-- ============================================================================
+-- Запрос 1. Компактно: одна строка на дело, привязки собраны в колонки
+--           (суды / судьи / стороны — каждая сущность с новой строки внутри ячейки).
+-- ============================================================================
+SELECT
+    c.id,
+    c.uid,
+    c.code,
+    c.status,
+    c.category,
+    c.receipt_date,
+    (SELECT string_agg(ct.name || ' (' || ct.code || ')', E'\n' ORDER BY ct.name)
+       FROM case_court cc
+       JOIN court ct ON ct.id = cc.court_id
+      WHERE cc.case_id = c.id)                                       AS courts,
+    (SELECT string_agg(j.full_name, E'\n' ORDER BY j.full_name)
+       FROM case_judge cj
+       JOIN judge j ON j.id = cj.judge_id
+      WHERE cj.case_id = c.id)                                       AS judges,
+    (SELECT string_agg(
+                CASE s.type::text
+                    WHEN 'PLAINTIFF' THEN 'Истец'
+                    WHEN 'DEFENDANT' THEN 'Ответчик'
+                    ELSE 'Другое'
+                END || ': ' || s.full_name,
+                E'\n' ORDER BY s.type::text)
+       FROM case_side cs
+       JOIN side s ON s.id = cs.side_id
+      WHERE cs.case_id = c.id)                                       AS sides
+FROM "case" c
+WHERE c.uid = '77MS0466-01-2026-003751-93';   -- <-- УИД ЗДЕСЬ
+
+
+-- ============================================================================
+-- Запрос 2. Детально: по одной строке на КАЖДУЮ привязанную сущность
+--           (тип + значение). УИД задаётся один раз в CTE ниже.
+-- ============================================================================
+WITH c AS (
+    SELECT id
+      FROM "case"
+     WHERE uid = '77MS0466-01-2026-003751-93'   -- <-- УИД ЗДЕСЬ
+)
+SELECT 'Суд' AS entity, ct.name || ' (' || ct.code || ')' AS value
+  FROM c
+  JOIN case_court cc ON cc.case_id = c.id
+  JOIN court ct      ON ct.id = cc.court_id
+
+UNION ALL
+SELECT 'Судья', j.full_name
+  FROM c
+  JOIN case_judge cj ON cj.case_id = c.id
+  JOIN judge j       ON j.id = cj.judge_id
+
+UNION ALL
+SELECT
+    'Сторона (' ||
+    CASE s.type::text
+        WHEN 'PLAINTIFF' THEN 'Истец'
+        WHEN 'DEFENDANT' THEN 'Ответчик'
+        ELSE 'Другое'
+    END || ')',
+    s.full_name
+  FROM c
+  JOIN case_side cs ON cs.case_id = c.id
+  JOIN side s       ON s.id = cs.side_id
+
+ORDER BY entity, value;
+
+
+        SELECT
+    c.id,
+    c.uid,
+    c.code,
+    c.status,
+    j.full_name  AS judge,
+    ct.name      AS court,
+    ct.code      AS court_code
+FROM "case" c
+LEFT JOIN case_judge cj ON cj.case_id = c.id
+LEFT JOIN judge j       ON j.id = cj.judge_id
+LEFT JOIN case_court cc ON cc.case_id = c.id
+LEFT JOIN court ct      ON ct.id = cc.court_id
+ORDER BY c.id;

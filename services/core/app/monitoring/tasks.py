@@ -19,6 +19,7 @@ from app.repositories import (
     CourtRepository,
     JudgeRepository,
     SearchTaskRepository,
+    SideRepository,
 )
 
 logger = get_task_logger(__name__)
@@ -91,6 +92,13 @@ def sync_case(self, task_id: int) -> None:
                 if judge not in case.judges:
                     case.judges.append(judge)
                     logger.info("Привязан судья: %s к делу %s", judge.full_name, uid)
+            for side in SideRepository(session).get_or_create_many(data.get("sides", [])):
+                if side not in case.sides:
+                    case.sides.append(side)
+                    logger.info(
+                        "Привязана сторона: %s (%s) к делу %s",
+                        side.full_name, side.type.value, uid,
+                    )
             case_id = case.id
     except NewCourtException as exc:
         # Новый суд — повторять бессмысленно, помечаем задачу проваленной.
