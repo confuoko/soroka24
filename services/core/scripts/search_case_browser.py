@@ -42,7 +42,7 @@ except ImportError:
 # Значения по умолчанию для запуска без аргументов.
 DEFAULT_UID = "77MS0466-01-2026-003751-93"
 DEFAULT_RESULTS_OUT = "after_search_page.html"  # страница результатов поиска
-DEFAULT_CASE_OUT = "case_details_page.html"      # карточка первого дела
+DEFAULT_CASE_OUT = "case_details_page_2.html"      # карточка первого дела
 
 # Адреса и папка для сохранённых страниц (фикстур парсера).
 BASE_URL = "https://mos-sud.ru"

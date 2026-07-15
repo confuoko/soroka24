@@ -18,6 +18,10 @@ class CaseNotFound(CourtError):
     """По УИД ничего не нашлось на странице поиска."""
 
 
+class NewCourtException(CourtError):
+    """Суд с карточки ещё не заведён в БД (нужно добавить справочник суда)."""
+
+
 class CourtClient(ABC):
     """Интерфейс клиента суда.
 

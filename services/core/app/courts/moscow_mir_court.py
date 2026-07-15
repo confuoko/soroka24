@@ -6,6 +6,7 @@
 """
 from app.browser import ChromiumSession
 from app.courts.base import CaseNotFound, CourtClient
+from app.parsers.registry import get_parser
 
 # Адрес страницы поиска портала мировых судей Москвы.
 SEARCH_URL = "https://mos-sud.ru/search"
@@ -41,6 +42,5 @@ class MoscowMirCourtClient(CourtClient):
             return session.open_in_new_tab(links.first)
 
     def parse(self, html: str) -> dict:
-        """Разбор HTML карточки в данные дела. ЗАГЛУШКА — напишем позже."""
-        # TODO: парсер страницы типа A (стороны, судья, события, документы, ...).
-        return {}
+        """Разбор HTML карточки в данные дела — делегируем парсеру по типу страницы."""
+        return get_parser(self.page_type).parse(html)

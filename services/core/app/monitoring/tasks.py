@@ -5,9 +5,19 @@ sync_case — синхронизация дела по УИД: сходить б
 вынесена из API в фоновую задачу; API лишь ставит задачу и отдаёт её id.
 """
 from app.celery_app import celery_app
-from app.courts import CaseNotFound, UnsupportedCourt, define_court_by_uid
+from app.courts import (
+    CaseNotFound,
+    NewCourtException,
+    UnsupportedCourt,
+    define_court_by_uid,
+)
 from app.models.database import session_scope
-from app.repositories import CaseRepository, SearchTaskRepository
+from app.repositories import (
+    CaseRepository,
+    CourtRepository,
+    JudgeRepository,
+    SearchTaskRepository,
+)
 
 
 def _record_error(task_id: int, error: str, page_status=None) -> None:
@@ -59,8 +69,29 @@ def sync_case(self, task_id: int) -> None:
             _mark_failed(task_id, f"Исчерпаны попытки: {exc}")
             return
 
-    # 3. Успех: создаём/обновляем Case и помечаем задачу выполненной (одной транзакцией).
+    # 3. Успех: привязать суд + судью и создать/обновить Case.
+    #    Суд резолвим ПЕРВЫМ: если его нет в БД — NewCourtException, транзакция
+    #    откатывается и Case НЕ создаётся (заводить дело без суда не хотим).
+    try:
+        with session_scope() as session:
+            # Код суда для мировых судов Москвы — первые 8 символов УИД (напр. 77MS0001).
+            court = CourtRepository(session).get_by_code(uid[:8])
+            if court is None:
+                raise NewCourtException(uid[:8])
+
+            case = CaseRepository(session).upsert_by_uid(uid, data)
+            if court not in case.courts:  # идемпотентно при повторной синхронизации
+                case.courts.append(court)
+            for judge in JudgeRepository(session).get_or_create_many(data.get("judge_names", [])):
+                if judge not in case.judges:
+                    case.judges.append(judge)
+            case_id = case.id
+    except NewCourtException as exc:
+        # Новый суд — повторять бессмысленно, помечаем задачу проваленной.
+        _mark_failed(task_id, f"Новый суд, требуется завести справочник: {exc}")
+        return
+
+    # Успех фиксируем отдельной транзакцией (первая уже закоммичена).
     with session_scope() as session:
-        case = CaseRepository(session).upsert_by_uid(uid, data)
         repo = SearchTaskRepository(session)
-        repo.mark_success(repo.get(task_id), case.id)
+        repo.mark_success(repo.get(task_id), case_id)
