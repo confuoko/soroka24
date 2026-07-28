@@ -1,10 +1,13 @@
 """Парсер карточки дела мировых судов Москвы (mos-sud.ru) — страница типа A.
 
-Достаёт ФИО судьи, стороны по делу и события «Истории состояний».
+Достаёт ФИО судьи, стороны по делу, события «Истории состояний» и строки
+«Истории местонахождения».
 - Судья и стороны лежат в «карточке» — блоке пар «метка/значение»:
   div.detail-cart div.row_card > (.left = метка, .right = значение).
 - События — в таблице под заголовком <h3>История состояний</h3>
   (3 колонки: Дата / Состояние / Документ-основание).
+- Местонахождения — в таблице под <h3>История местонахождения</h3>
+  (3 колонки: Дата / Местонахождение / Комментарий), она идёт ниже в том же контейнере.
 
 ВАЖНО (грабли разметки портала):
 - В метке «Cудья» первая буква — ЛАТИНСКАЯ «C» (U+0043), а не кириллическая «С».
@@ -13,9 +16,12 @@
 - Значения обильно обложены пробелами/переводами строк — везде чистим текст.
 - Стороны лежат одной строкой в .right в виде «<strong>Роль: </strong>ФИО<br>» —
   ролей может быть несколько (истец, ответчик, привлекаемое лицо и т.п.).
-- В том же контейнере, что «История состояний», ниже идёт таблица «История
-  местонахождения» с тем же классом mainTable — поэтому таблицу событий ищем
+- Обе таблицы историй лежат в одном контейнере, у них нет id, а классы (mainTable
+  и т.п.) совпадают, причём порядок токенов класса плавает. Поэтому таблицу ищем
   по тексту заголовка <h3>, а не по классу.
+- В конце страницы те же таблицы продублированы скрытыми клонами внутри
+  div#modalTable (мобильные модалки). У клонов НЕТ <h3>, поэтому якорь по заголовку
+  спасает от дублей — уходить с него на поиск по классу нельзя.
 """
 import re
 from datetime import date, datetime
@@ -36,6 +42,8 @@ SIDES_LABEL_RE = re.compile(r"^[СсCc]тороны\b")
 
 # Заголовок таблицы событий (движение дела).
 STATE_HISTORY_HEADING = "История состояний"
+# Заголовок таблицы истории местонахождения дела.
+PLACE_HISTORY_HEADING = "История местонахождения"
 # Формат дат на портале.
 DATE_FORMAT = "%d.%m.%Y"
 
@@ -96,6 +104,46 @@ def _parse_state_history(soup: BeautifulSoup) -> list[dict]:
     return events
 
 
+def _parse_place_history(soup: BeautifulSoup) -> list[dict]:
+    """Разобрать таблицу «История местонахождения» в список местонахождений.
+
+    Возвращает {"place_date": date, "place_description": str, "comment": str|None}.
+    Обязательны дата и местонахождение (образуют identity строки) — строки без
+    любого из них пропускаем. Пустой «Комментарий» → comment = None.
+    """
+    heading = soup.find(
+        "h3", string=lambda s: s is not None and _clean(s) == PLACE_HISTORY_HEADING
+    )
+    if heading is None:
+        return []
+    table = heading.find_next("table")
+    if table is None:
+        return []
+
+    places: list[dict] = []
+    for row in table.select("tbody tr"):
+        cells = row.find_all("td")
+        if len(cells) < 3:
+            continue
+
+        place_date = _parse_date(cells[0].get_text())
+        place_description = _clean(cells[1].get_text())
+        comment = _clean(cells[2].get_text()) or None
+
+        # Дата + местонахождение обязательны — иначе строка не может участвовать в детекте.
+        if place_date is None or not place_description:
+            continue
+
+        places.append(
+            {
+                "place_date": place_date,
+                "place_description": place_description,
+                "comment": comment,
+            }
+        )
+    return places
+
+
 def _parse_sides(value_el: Tag) -> list[dict]:
     """Разобрать .right блока «Стороны» в список {"role", "full_name"}.
 
@@ -129,7 +177,7 @@ class MoscowTypeAParser(CaseParser):
     page_type = "A"
 
     def parse(self, html: str) -> dict:
-        """Разобрать карточку: ФИО судей, стороны и события «Истории состояний»."""
+        """Разобрать карточку: судьи, стороны, «История состояний» и «История местонахождения»."""
         soup = BeautifulSoup(html, "lxml")
 
         # === КАРТОЧКА: судьи и стороны =====================================
@@ -155,4 +203,13 @@ class MoscowTypeAParser(CaseParser):
         # Отдельная таблица под <h3>История состояний</h3> — разбираем в события.
         events = _parse_state_history(soup)
 
-        return {"judge_names": judge_names, "sides": sides, "events": events}
+        # === ИСТОРИЯ МЕСТОНАХОЖДЕНИЯ =======================================
+        # Соседняя таблица под <h3>История местонахождения</h3>.
+        place_history = _parse_place_history(soup)
+
+        return {
+            "judge_names": judge_names,
+            "sides": sides,
+            "events": events,
+            "place_history": place_history,
+        }

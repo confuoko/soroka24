@@ -28,5 +28,10 @@ class CaseParser(ABC):
                  "document_str": "..." | None},
                 ...
               ],
+              "place_history": [
+                {"place_date": date, "place_description": "В канцелярии",
+                 "comment": "..." | None},
+                ...
+              ],
             }
         """

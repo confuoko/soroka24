@@ -31,6 +31,12 @@ def _log_changes(uid: str, changes: CaseChanges) -> None:
         logger.info("Изменён документ события по делу %s: %s — %s", uid, event.event_date, event.state_description)
     for event in changes.removed_events:
         logger.info("Удалено событие по делу %s: %s — %s", uid, event.event_date, event.state_description)
+    for place in changes.new_places:
+        logger.info("Новое местонахождение по делу %s: %s — %s", uid, place.place_date, place.place_description)
+    for place in changes.updated_places:
+        logger.info("Изменён комментарий местонахождения по делу %s: %s — %s", uid, place.place_date, place.place_description)
+    for place in changes.removed_places:
+        logger.info("Удалено местонахождение по делу %s: %s — %s", uid, place.place_date, place.place_description)
     for judge in changes.added_judges:
         logger.info("Привязан судья: %s к делу %s", judge.full_name, uid)
     for judge in changes.removed_judges:
@@ -76,7 +82,7 @@ def sync_case(self, task_id: int) -> None:
     try:
         client = define_court_by_uid(uid)
         html = client.fetch_case_html(uid)
-        data = client.parse(html)  # -> {"judge_names", "sides", "events"}
+        data = client.parse(html)  # -> {"judge_names", "sides", "events", "place_history"}
     except (UnsupportedCourt, CaseNotFound) as exc:
         # Окончательные ошибки — повторять бессмысленно.
         _mark_failed(task_id, str(exc))

@@ -1,19 +1,20 @@
-"""Обновление дела по данным парсера: сверка судей, сторон и событий + diff изменений.
+"""Обновление дела по данным парсера: сверка судей, сторон, событий и местонахождений + diff.
 
 Вынесено из Celery-таска отдельной функцией, чтобы её можно было тестировать на
 чистой сессии БД, без Chromium и брокера. Источник истины — страница суда:
-судьи/стороны/события приводятся к тому, что на ней сейчас, а метод возвращает
-CaseChanges — что появилось, что изменилось, что отвязано/удалено.
+судьи/стороны/события/местонахождения приводятся к тому, что на ней сейчас, а метод
+возвращает CaseChanges — что появилось, что изменилось, что отвязано/удалено.
 """
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.models.database import Case, Court, Event, Judge, Side
+from app.models.database import Case, Court, Event, Judge, PlaceHistory, Side
 from app.repositories import (
     CaseRepository,
     EventRepository,
     JudgeRepository,
+    PlaceHistoryRepository,
     SideRepository,
 )
 
@@ -26,6 +27,9 @@ class CaseChanges:
     new_events: list[Event]       # новые строки «Истории состояний»
     updated_events: list[Event]   # события, у которых поменялся document_str
     removed_events: list[Event]   # события, пропавшие со страницы (удалены)
+    new_places: list[PlaceHistory]      # новые строки «Истории местонахождения»
+    updated_places: list[PlaceHistory]  # местонахождения, у которых поменялся comment
+    removed_places: list[PlaceHistory]  # местонахождения, пропавшие со страницы (удалены)
     added_judges: list[Judge]     # привязанные судьи
     removed_judges: list[Judge]   # отвязанные судьи
     added_sides: list[Side]       # привязанные стороны
@@ -37,6 +41,9 @@ class CaseChanges:
                 self.new_events,
                 self.updated_events,
                 self.removed_events,
+                self.new_places,
+                self.updated_places,
+                self.removed_places,
                 self.added_judges,
                 self.removed_judges,
                 self.added_sides,
@@ -91,11 +98,20 @@ def update_case(
         session
     ).sync_events(case, data.get("events", []))
 
+    # 5. «История местонахождения» — сверка со страницей (new/updated/removed).
+    #    data.get(..., []) — парсер другого типа страницы может не отдавать этот ключ.
+    new_places, updated_places, removed_places = PlaceHistoryRepository(
+        session
+    ).sync_place_history(case, data.get("place_history", []))
+
     return CaseChanges(
         case=case,
         new_events=new_events,
         updated_events=updated_events,
         removed_events=removed_events,
+        new_places=new_places,
+        updated_places=updated_places,
+        removed_places=removed_places,
         added_judges=added_judges,
         removed_judges=removed_judges,
         added_sides=added_sides,
