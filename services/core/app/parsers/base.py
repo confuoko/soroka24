@@ -19,6 +19,14 @@ class CaseParser(ABC):
     def parse(self, html: str) -> dict:
         """Разобрать HTML карточки в данные дела.
 
-        Первая версия возвращает только ФИО судей:
-            {"judge_names": ["Каурова Д.С.", ...]}  # пустой список, если не найдено
+        Возвращает словарь (любой список пуст, если данных нет):
+            {
+              "judge_names": ["Каурова Д.С.", ...],
+              "sides": [{"role": "Истец", "full_name": "..."}, ...],
+              "events": [
+                {"event_date": date, "state_description": "...",
+                 "document_str": "..." | None},
+                ...
+              ],
+            }
         """

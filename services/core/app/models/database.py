@@ -255,6 +255,8 @@ class Event(Base):
     event_date: Mapped[date | None] = mapped_column(Date)
     # Описание состояния (обязательное, может быть длинным).
     state_description: Mapped[str] = mapped_column(Text)
+    # Название документа-основания текстом (на портале ссылок обычно нет — только имя).
+    document_str: Mapped[str | None] = mapped_column(Text)
     # Необязательная ссылка на документ; при удалении документа — обнуляется (SET NULL).
     document_id: Mapped[int | None] = mapped_column(
         ForeignKey("document.id", ondelete="SET NULL")

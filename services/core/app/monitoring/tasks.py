@@ -14,15 +14,31 @@ from app.courts import (
     define_court_by_uid,
 )
 from app.models.database import session_scope
-from app.repositories import (
-    CaseRepository,
-    CourtRepository,
-    JudgeRepository,
-    SearchTaskRepository,
-    SideRepository,
-)
+from app.monitoring.case_update import CaseChanges, update_case
+from app.repositories import CourtRepository, SearchTaskRepository
 
 logger = get_task_logger(__name__)
+
+
+def _log_changes(uid: str, changes: CaseChanges) -> None:
+    """Записать в лог, что изменилось по делу за эту синхронизацию."""
+    if not changes.has_changes():
+        logger.info("Дело %s: изменений нет", uid)
+        return
+    for event in changes.new_events:
+        logger.info("Новое событие по делу %s: %s — %s", uid, event.event_date, event.state_description)
+    for event in changes.updated_events:
+        logger.info("Изменён документ события по делу %s: %s — %s", uid, event.event_date, event.state_description)
+    for event in changes.removed_events:
+        logger.info("Удалено событие по делу %s: %s — %s", uid, event.event_date, event.state_description)
+    for judge in changes.added_judges:
+        logger.info("Привязан судья: %s к делу %s", judge.full_name, uid)
+    for judge in changes.removed_judges:
+        logger.info("Отвязан судья: %s от дела %s", judge.full_name, uid)
+    for side in changes.added_sides:
+        logger.info("Привязана сторона: %s (%s) к делу %s", side.full_name, side.type.value, uid)
+    for side in changes.removed_sides:
+        logger.info("Отвязана сторона: %s (%s) от дела %s", side.full_name, side.type.value, uid)
 
 
 def _record_error(task_id: int, error: str, page_status=None) -> None:
@@ -60,7 +76,7 @@ def sync_case(self, task_id: int) -> None:
     try:
         client = define_court_by_uid(uid)
         html = client.fetch_case_html(uid)
-        data = client.parse(html)  # пока заглушка -> {}
+        data = client.parse(html)  # -> {"judge_names", "sides", "events"}
     except (UnsupportedCourt, CaseNotFound) as exc:
         # Окончательные ошибки — повторять бессмысленно.
         _mark_failed(task_id, str(exc))
@@ -74,7 +90,7 @@ def sync_case(self, task_id: int) -> None:
             _mark_failed(task_id, f"Исчерпаны попытки: {exc}")
             return
 
-    # 3. Успех: привязать суд + судью и создать/обновить Case.
+    # 3. Успех: привязать суд и создать/обновить Case со сверкой судей/сторон/событий.
     #    Суд резолвим ПЕРВЫМ: если его нет в БД — NewCourtException, транзакция
     #    откатывается и Case НЕ создаётся (заводить дело без суда не хотим).
     try:
@@ -84,22 +100,9 @@ def sync_case(self, task_id: int) -> None:
             if court is None:
                 raise NewCourtException(uid[:8])
 
-            case = CaseRepository(session).upsert_by_uid(uid, data)
-            if court not in case.courts:  # идемпотентно при повторной синхронизации
-                case.courts.append(court)
-                logger.info("Найден и привязан суд: %s (%s) к делу %s", court.name, court.code, uid)
-            for judge in JudgeRepository(session).get_or_create_many(data.get("judge_names", [])):
-                if judge not in case.judges:
-                    case.judges.append(judge)
-                    logger.info("Привязан судья: %s к делу %s", judge.full_name, uid)
-            for side in SideRepository(session).get_or_create_many(data.get("sides", [])):
-                if side not in case.sides:
-                    case.sides.append(side)
-                    logger.info(
-                        "Привязана сторона: %s (%s) к делу %s",
-                        side.full_name, side.type.value, uid,
-                    )
-            case_id = case.id
+            changes = update_case(session, uid, data, court)
+            case_id = changes.case.id
+            _log_changes(uid, changes)
     except NewCourtException as exc:
         # Новый суд — повторять бессмысленно, помечаем задачу проваленной.
         _mark_failed(task_id, f"Новый суд, требуется завести справочник: {exc}")
