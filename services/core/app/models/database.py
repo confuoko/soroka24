@@ -267,8 +267,10 @@ class Event(Base):
     case_id: Mapped[int] = mapped_column(
         ForeignKey("case.id", ondelete="CASCADE"), index=True
     )
-    # Дата события на сайте суда (необязательная).
-    event_date: Mapped[date | None] = mapped_column(Date)
+    # Дата события на сайте суда (обязательная): вместе с state_description образует
+    # identity события, из которой считается uid (event_uid). Без даты uid не
+    # вычислить, поэтому NOT NULL.
+    event_date: Mapped[date] = mapped_column(Date)
     # Описание состояния (обязательное, может быть длинным).
     state_description: Mapped[str] = mapped_column(Text)
     # Название документа-основания текстом (на портале ссылок обычно нет — только имя).
@@ -302,8 +304,10 @@ class PlaceHistory(Base):
     case_id: Mapped[int] = mapped_column(
         ForeignKey("case.id", ondelete="CASCADE"), index=True
     )
-    # Дата изменения местонахождения на сайте суда (необязательная).
-    place_date: Mapped[date | None] = mapped_column(Date)
+    # Дата изменения местонахождения на сайте суда (обязательная): вместе с
+    # place_description образует identity строки, из которой считается uid
+    # (place_history_uid). Без даты uid не вычислить, поэтому NOT NULL.
+    place_date: Mapped[date] = mapped_column(Date)
     # Описание местонахождения (обязательное).
     place_description: Mapped[str] = mapped_column(Text)
     # Комментарий (необязательный).

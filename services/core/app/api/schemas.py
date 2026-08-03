@@ -80,7 +80,7 @@ class EventOut(_FromORM):
     """Событие «Истории состояний» в ответе API."""
 
     uid: uuid.UUID
-    event_date: Optional[date] = None
+    event_date: date  # NOT NULL в БД: входит в identity события (см. event_uid)
     state_description: str
     document_str: Optional[str] = None
 
@@ -89,7 +89,7 @@ class PlaceHistoryOut(_FromORM):
     """Строка «Истории местонахождения» в ответе API."""
 
     uid: uuid.UUID
-    place_date: Optional[date] = None
+    place_date: date  # NOT NULL в БД: входит в identity строки (см. place_history_uid)
     place_description: str
     comment: Optional[str] = None
 
