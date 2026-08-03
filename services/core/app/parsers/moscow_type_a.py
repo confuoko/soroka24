@@ -1,8 +1,9 @@
 """Парсер карточки дела мировых судов Москвы (mos-sud.ru) — страница типа A.
 
-Достаёт ФИО судьи, стороны по делу, события «Истории состояний» и строки
-«Истории местонахождения».
-- Судья и стороны лежат в «карточке» — блоке пар «метка/значение»:
+Достаёт скалярные поля дела, ФИО судьи, стороны по делу, события «Истории состояний»
+и строки «Истории местонахождения».
+- Скалярные поля (номер заявления, номер входящего, дата поступления, категория,
+  текущее состояние), судья и стороны лежат в «карточке» — блоке пар «метка/значение»:
   div.detail-cart div.row_card > (.left = метка, .right = значение).
 - События — в таблице под заголовком <h3>История состояний</h3>
   (3 колонки: Дата / Состояние / Документ-основание).
@@ -22,6 +23,13 @@
 - В конце страницы те же таблицы продублированы скрытыми клонами внутри
   div#modalTable (мобильные модалки). У клонов НЕТ <h3>, поэтому якорь по заголовку
   спасает от дублей — уходить с него на поиск по классу нельзя.
+- Набор меток карточки РАЗЛИЧАЕТСЯ по типам дел: у гражданского есть «Номер заявления»,
+  «Номер входящего документа», «Дата поступления», «Категория дела», а у дела по КоАП
+  вместо них «Номер дела», «Дата регистрации», «Статья КоАП РФ». Отсутствующая метка
+  даёт None, а не падение (см. CARD_FIELDS).
+- «Номер заявления» (гражданское) и «Номер дела» (КоАП) — ОДИН И ТОТ ЖЕ слот шаблона.
+  Поэтому метку матчим целиком («Номер заявления», «Номер входящего документа»), а не
+  по префиксу «Номер»: иначе в application_number уедет номер дела, чьё место в code.
 """
 import re
 from datetime import date, datetime
@@ -62,6 +70,28 @@ def _parse_date(text: str) -> date | None:
         return datetime.strptime(text, DATE_FORMAT).date()
     except ValueError:
         return None
+
+
+def _clean_or_none(text: str) -> str | None:
+    """Как _clean, но пустое значение → None (в БД такому полю место NULL, а не '')."""
+    return _clean(text) or None
+
+
+# Скалярные поля дела из карточки: (метка, поле Case, преобразование значения).
+# Первую букву метки, как и в JUDGE_LABEL_RE, матчим терпимо к латинскому двойнику
+# (Н/H, Д/D, К/K, Т/T) — портал уже подкладывал латинскую «C» в «Cудья».
+# Метку сверяем целиком (см. граблю про «Номер заявления» / «Номер дела» в docstring).
+CARD_FIELDS = (
+    (re.compile(r"^[НнHh]омер заявления\b"), "application_number", _clean_or_none),
+    (
+        re.compile(r"^[НнHh]омер входящего документа\b"),
+        "incoming_number",
+        _clean_or_none,
+    ),
+    (re.compile(r"^[ДдDd]ата поступления\b"), "receipt_date", _parse_date),
+    (re.compile(r"^[КкKk]атегория дела\b"), "category", _clean_or_none),
+    (re.compile(r"^[ТтTt]екущее состояние\b"), "status", _clean_or_none),
+)
 
 
 def _parse_state_history(soup: BeautifulSoup) -> list[dict]:
@@ -177,12 +207,15 @@ class MoscowTypeAParser(CaseParser):
     page_type = "A"
 
     def parse(self, html: str) -> dict:
-        """Разобрать карточку: судьи, стороны, «История состояний» и «История местонахождения»."""
+        """Разобрать карточку: поля дела, судьи, стороны, «История состояний» и «История местонахождения»."""
         soup = BeautifulSoup(html, "lxml")
 
-        # === КАРТОЧКА: судьи и стороны =====================================
+        # === КАРТОЧКА: скалярные поля дела, судьи и стороны =================
         # Идём по строкам «метка/значение» и раскладываем по типу метки:
-        # «Cудья» → judge_names, «Cтороны» → sides (роль + ФИО).
+        # «Cудья» → judge_names, «Cтороны» → sides (роль + ФИО), остальное — по CARD_FIELDS.
+        # Все ключи card заведены заранее: страница — источник истины, поэтому пропавшую
+        # на ней метку отдаём как None (поле в БД обнулится), а не молча опускаем ключ.
+        card: dict = {field: None for _, field, _ in CARD_FIELDS}
         judge_names: list[str] = []
         sides: list[dict] = []
         for row in soup.select(ROW_SELECTOR):
@@ -191,6 +224,8 @@ class MoscowTypeAParser(CaseParser):
             if label_el is None or value_el is None:
                 continue
 
+            # Метку сверяем только после _clean: значения и метки обложены пробелами
+            # и переводами строк, причём у каждого поля по-своему.
             label = _clean(label_el.get_text())
             if JUDGE_LABEL_RE.match(label):
                 name = _clean(value_el.get_text())
@@ -198,6 +233,11 @@ class MoscowTypeAParser(CaseParser):
                     judge_names.append(name)
             elif SIDES_LABEL_RE.match(label):
                 sides.extend(_parse_sides(value_el))
+            else:
+                for label_re, field, convert in CARD_FIELDS:
+                    if label_re.match(label):
+                        card[field] = convert(value_el.get_text())
+                        break
 
         # === ИСТОРИЯ СОСТОЯНИЙ: события =====================================
         # Отдельная таблица под <h3>История состояний</h3> — разбираем в события.
@@ -208,6 +248,7 @@ class MoscowTypeAParser(CaseParser):
         place_history = _parse_place_history(soup)
 
         return {
+            **card,
             "judge_names": judge_names,
             "sides": sides,
             "events": events,

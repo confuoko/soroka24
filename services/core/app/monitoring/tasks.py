@@ -197,7 +197,7 @@ def sync_case(self, task_id: int) -> None:
     # 2b. Разбор карточки. Ошибка разбора не временная (сломалась разметка или тип
     #     страницы неизвестен) — ретраить нечего, помечаем задачу проваленной.
     try:
-        data = client.parse(html)  # -> {"judge_names", "sides", "events", "place_history"}
+        data = client.parse(html)  # состав словаря — в CaseParser.parse
     except Exception as exc:
         _record_parse_entry(
             uid, STATUS_PARSE_ERROR, fetched_at, task_id,

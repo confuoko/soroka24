@@ -19,8 +19,17 @@ class CaseParser(ABC):
     def parse(self, html: str) -> dict:
         """Разобрать HTML карточки в данные дела.
 
-        Возвращает словарь (любой список пуст, если данных нет):
+        Возвращает словарь (любой список пуст, если данных нет; скалярное поле —
+        None, если соответствующей метки на странице нет: набор меток различается
+        по типам дел, см. MoscowTypeAParser):
             {
+              # Скалярные поля Case — их подхватывает CaseRepository.upsert_by_uid.
+              "application_number": "М-2342/463/2026" | None,
+              "incoming_number": "02609/2026" | None,
+              "receipt_date": date | None,
+              "category": "124 - О взыскании платы за жилую площадь..." | None,
+              "status": "Зарегистрировано (10.07.2026)" | None,
+
               "judge_names": ["Каурова Д.С.", ...],
               "sides": [{"role": "Истец", "full_name": "..."}, ...],
               "events": [
