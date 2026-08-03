@@ -55,6 +55,37 @@ services:
       timeout: 3s
       retries: 5
 
+  # S3-совместимое хранилище: снапшоты HTML страниц суда (карточки дел).
+  # Локальная замена облачного S3 — код работает через boto3, в проде меняется
+  # только S3_ENDPOINT_URL и ключи.
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+    ports:
+      - "9000:9000"      # S3 API
+      - "9001:9001"      # web-консоль: http://localhost:9001
+    volumes:
+      - minio_data:/data
+
+  # Одноразовый контейнер: создаёт бакет и завершается. Ждёт minio в цикле, чтобы
+  # не угадывать healthcheck (образ minio/mc минимальный, curl там может не быть).
+  minio-init:
+    image: minio/mc
+    depends_on:
+      - minio
+    environment:
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+    entrypoint: >
+      sh -c "until mc alias set local http://minio:9000 $$S3_ACCESS_KEY $$S3_SECRET_KEY;
+             do echo 'ждём minio...'; sleep 2; done;
+             mc mb --ignore-existing local/$$S3_BUCKET;
+             echo 'бакет' $$S3_BUCKET 'готов'"
+
   # ------------------------------------------------------------------ core
   # HTTP API core (FastAPI): принимает запросы от client, отдаёт данные по делам.
   core-api:
@@ -67,6 +98,11 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_REGION: ${S3_REGION}
     ports:
       - "8000:8000"      # http://localhost:8000/ping
     volumes:
@@ -78,6 +114,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
 
   # Celery-воркер СРОЧНОЙ очереди: парсит только что добавленные дела (быстрый отклик).
   core-worker-urgent:
@@ -88,6 +126,11 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
       DATABASE_URL: ${DATABASE_URL}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_REGION: ${S3_REGION}
     volumes:
       - ./services/core:/app
     depends_on:
@@ -97,6 +140,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
 
   # Celery-воркер РЯДОВОЙ очереди: фоновый ежедневный обход существующих дел.
   core-worker-regular:
@@ -107,6 +152,11 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
       DATABASE_URL: ${DATABASE_URL}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_REGION: ${S3_REGION}
     volumes:
       - ./services/core:/app
     depends_on:
@@ -116,6 +166,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
 
   # ------------------------------------------------------------------ client
   # Веб-сервис (Django): регистрация, фронт, боты. Пока — страница-заглушка.
@@ -136,3 +188,4 @@ services:
 
 volumes:
   postgres_data:
+  minio_data:

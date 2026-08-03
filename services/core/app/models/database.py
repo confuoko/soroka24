@@ -21,7 +21,9 @@ from sqlalchemy import (
     Uuid,
     create_engine,
     func,
+    text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -144,6 +146,15 @@ class Case(Base):
         server_default=func.now(), onupdate=func.now()
     )
 
+    # История парсингов дела: по одной записи на КАЖДЫЙ вызов парсинга, включая
+    # «изменений нет» и «сайт суда не открылся». Формат записи и дозапись —
+    # в app/monitoring/parse_history.py (append_parse_entry).
+    # ВАЖНО: SQLAlchemy не отслеживает мутацию списка на месте (diff_history.append(...)
+    # НЕ попадёт в UPDATE). Дозаписывать только переприсваиванием всего списка.
+    diff_history: Mapped[list[dict]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
+
     # Группа связанных дел; при удалении группы поле обнуляется (SET NULL), дело живёт.
     case_link_id: Mapped[int | None] = mapped_column(
         ForeignKey("case_link.id", ondelete="SET NULL"), index=True
@@ -180,6 +191,11 @@ class Case(Base):
         if self.case_link is None:
             return []
         return [c for c in self.case_link.cases if c is not self]
+
+    @property
+    def related_case_ids(self) -> list[int]:
+        """id других дел из той же группы — в таком виде их отдаёт API."""
+        return [c.id for c in self.related_cases]
 
 
 class CaseLink(Base):

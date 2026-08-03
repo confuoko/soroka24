@@ -3,7 +3,7 @@
 Здесь описаны очереди `urgent` и `regular`. Разнесение воркеров по контейнерам
 (-Q urgent / -Q regular) задаётся в docker-compose, а не здесь.
 
-Сами таски появятся в app/monitoring/tasks.py — их подхватит `include`.
+Таски лежат в app/monitoring/tasks.py и app/courts/tasks.py — их подхватит `include`.
 """
 from celery import Celery
 from kombu import Queue
@@ -14,7 +14,7 @@ celery_app = Celery(
     "soroka_core",
     broker=config.CELERY_BROKER_URL,
     backend=config.CELERY_RESULT_BACKEND,
-    include=["app.monitoring.tasks"],
+    include=["app.monitoring.tasks", "app.courts.tasks"],
 )
 
 # Объявляем очереди, которые будут слушать воркеры.

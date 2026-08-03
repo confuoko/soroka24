@@ -35,8 +35,10 @@ def request_for_case_sync(payload: CaseSyncRequest, response: Response) -> CaseS
         tasks = SearchTaskRepository(session)
 
         # 3. Дело уже в БД — сразу отдаём его id.
+        #    С force=true не выходим, а идём парсить заново: так наполняется история
+        #    diff'ов (Case.diff_history) и подтягиваются свежие события.
         existing_case = cases.get_by_uid(uid)
-        if existing_case is not None:
+        if existing_case is not None and not payload.force:
             response.status_code = status.HTTP_200_OK
             return CaseSyncResponse(status="exists", case_id=existing_case.id)
 

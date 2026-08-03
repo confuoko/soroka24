@@ -4,6 +4,9 @@
 создаёт новый Court либо обновляет существующий (name/level/region/base_url).
 Суды, которых нет в списке, не трогаются и не удаляются.
 
+Сама логика живёт в CourtRepository.sync_from_entries — её же использует кнопка
+«Залить суды из courts.json» в админке (через таск app.courts.tasks).
+
 Запуск (из папки services/core, чтобы резолвился пакет app; нужна поднятая БД):
     python scripts/sync_courts.py
     python scripts/sync_courts.py --src data/courts.json
@@ -19,48 +22,19 @@ from pathlib import Path
 CORE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(CORE_ROOT))
 
-from app.models.database import Court, CourtLevel, session_scope  # noqa: E402
-
-DEFAULT_SRC = CORE_ROOT / "data" / "courts.json"
-
-
-def sync_courts(courts: list[dict]) -> tuple[int, int]:
-    """Создать/обновить суды по коду. Возвращает (создано, обновлено)."""
-    created = 0
-    updated = 0
-    with session_scope() as session:
-        # Одним запросом поднимаем существующие суды в словарь {code: Court}.
-        existing = {court.code: court for court in session.query(Court).all()}
-
-        for entry in courts:
-            level = CourtLevel(entry["level"])  # значение JSON ("mirsud") -> член enum
-            court = existing.get(entry["code"])
-            if court is None:
-                session.add(Court(
-                    code=entry["code"],
-                    name=entry["name"],
-                    level=level,
-                    region=entry["region"],
-                    base_url=entry.get("base_url"),
-                ))
-                created += 1
-            else:
-                court.name = entry["name"]
-                court.level = level
-                court.region = entry["region"]
-                court.base_url = entry.get("base_url")
-                updated += 1
-
-    return created, updated
+from app.config import COURTS_JSON_PATH  # noqa: E402
+from app.models.database import session_scope  # noqa: E402
+from app.repositories import CourtRepository  # noqa: E402
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Залить/обновить суды в БД из JSON-справочника.")
-    parser.add_argument("--src", type=Path, default=DEFAULT_SRC, help="путь к JSON со списком судов")
+    parser.add_argument("--src", type=Path, default=COURTS_JSON_PATH, help="путь к JSON со списком судов")
     args = parser.parse_args()
 
     courts = json.loads(args.src.read_text(encoding="utf-8"))
-    created, updated = sync_courts(courts)
+    with session_scope() as session:
+        created, updated = CourtRepository(session).sync_from_entries(courts)
 
     print(f"Источник: {args.src}")
     print(f"создано: {created}")

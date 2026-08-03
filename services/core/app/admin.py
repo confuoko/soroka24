@@ -5,13 +5,15 @@
 """
 from datetime import date, datetime
 
-from sqladmin import Admin, ModelView
+from sqladmin import Admin, ModelView, action
 from sqladmin.authentication import AuthenticationBackend
 from sqlalchemy import Date, DateTime
 from sqlalchemy import inspect as sa_inspect
 from starlette.requests import Request
+from starlette.responses import RedirectResponse
 
 from app.config import ADMIN_PASSWORD, ADMIN_SECRET_KEY, ADMIN_USERNAME
+from app.courts.tasks import sync_courts_from_json
 from app.models.database import (
     Case,
     CaseLink,
@@ -26,6 +28,7 @@ from app.models.database import (
     Side,
     engine,
 )
+from app.monitoring.tasks import enqueue_case_resync
 
 
 def _format_no_ms(value):
@@ -84,6 +87,30 @@ class CaseAdmin(ModelView, model=Case):
     name = "Дело"
     name_plural = "Дела"
     column_list = [Case.id, Case.uid, Case.application_number, Case.status, Case.created_at]
+    # Историю парсингов (diff_history) SQLAdmin покажет в карточке дела сам —
+    # column_details_list по умолчанию включает все колонки модели.
+
+    @action(
+        name="resync_cases",
+        label="Спарсить заново",
+        confirmation_message="Поставить выбранные дела в очередь на повторный парсинг?",
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def resync_cases(self, request: Request) -> RedirectResponse:
+        """Поставить каждое выбранное дело на повторный парсинг.
+
+        Нужна, чтобы наполнять историю diff'ов: обычный POST /search_case для уже
+        известного дела возвращает его id и парсинг не запускает.
+        """
+        pks = [pk for pk in request.query_params.get("pks", "").split(",") if pk]
+
+        # enqueue_case_resync сам создаёт SearchTask по УИД дела и ставит задачу
+        # в очередь regular; несуществующие id он молча пропускает (вернёт None).
+        for pk in pks:
+            enqueue_case_resync(int(pk))
+
+        return RedirectResponse(request.url_for("admin:list", identity=self.identity), status_code=302)
 
 
 class CourtAdmin(ModelView, model=Court):
@@ -93,6 +120,25 @@ class CourtAdmin(ModelView, model=Court):
     name_plural = "Суды"
     column_list = [Court.id, Court.code, Court.name, Court.level, Court.region]
     column_searchable_list = [Court.code, Court.name, Court.region]
+
+    @action(
+        name="sync_courts_json",
+        label="Залить суды из courts.json",
+        confirmation_message=(
+            "Залить/обновить справочник судов из data/courts.json (~7700 записей)? "
+            "Существующие суды будут обновлены по коду, отсутствующие в файле не удаляются."
+        ),
+        add_in_detail=False,
+        add_in_list=True,
+    )
+    async def sync_courts_json(self, request: Request) -> RedirectResponse:
+        """Поставить в очередь заливку справочника судов из JSON.
+
+        Команда глобальная — выбранные галочками строки не важны. Через Celery, а не
+        напрямую: 7700 записей в одном запросе заблокировали бы event loop uvicorn.
+        """
+        sync_courts_from_json.apply_async(queue="regular")
+        return RedirectResponse(request.url_for("admin:list", identity=self.identity), status_code=302)
 
 
 class JudgeAdmin(ModelView, model=Judge):
