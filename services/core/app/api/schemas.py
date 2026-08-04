@@ -73,7 +73,9 @@ class SideOut(_FromORM):
 
     id: int
     full_name: str
-    type: SideType  # Истец | Ответчик | Другое
+    # Роль как на портале: «Истец», «Взыскатель», «Должник», «Подсудимый»…
+    role: Optional[str] = None
+    type: SideType  # грубая классификация: Истец | Ответчик | Другое
 
 
 class EventOut(_FromORM):
@@ -136,6 +138,11 @@ class CaseDetailResponse(_FromORM):
     application_number: Optional[str] = None
     incoming_number: Optional[str] = None
     receipt_date: Optional[date] = None
+    registration_date: Optional[date] = None
+    first_instance_date: Optional[date] = None
+    first_instance_decision: Optional[str] = None
+    decision_effective_date: Optional[date] = None
+    superior_case_number: Optional[str] = None
     category: Optional[str] = None
     status: Optional[str] = None
     created_at: datetime

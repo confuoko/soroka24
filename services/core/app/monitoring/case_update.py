@@ -21,6 +21,7 @@ from app.models.database import (
 )
 from app.repositories import (
     CaseRepository,
+    CaseFieldChange,
     CourtSessionRepository,
     DocumentRepository,
     EventRepository,
@@ -35,6 +36,8 @@ class CaseChanges:
     """Что изменилось по делу за одну синхронизацию."""
 
     case: Case                    # созданное/обновлённое дело (аггрегат)
+    # Изменившиеся скалярные поля дела (статус, решение, даты…). У нового дела пуст.
+    field_changes: list[CaseFieldChange]
     new_events: list[Event]       # новые строки «Истории состояний»
     updated_events: list[Event]   # события, у которых поменялся document_str
     removed_events: list[Event]   # события, пропавшие со страницы (удалены)
@@ -56,6 +59,7 @@ class CaseChanges:
     def has_changes(self) -> bool:
         return any(
             (
+                self.field_changes,
                 self.new_events,
                 self.updated_events,
                 self.removed_events,
@@ -100,7 +104,7 @@ def update_case(
     Работает в рамках переданной сессии; коммит — на вызывающей стороне.
     """
     # 1. Дело: создать/обновить поля и идемпотентно привязать суд.
-    case = CaseRepository(session).upsert_by_uid(uid, data)
+    case, field_changes = CaseRepository(session).upsert_by_uid(uid, data)
     if court not in case.courts:
         case.courts.append(court)
 
@@ -140,6 +144,7 @@ def update_case(
 
     return CaseChanges(
         case=case,
+        field_changes=field_changes,
         new_events=new_events,
         updated_events=updated_events,
         removed_events=removed_events,

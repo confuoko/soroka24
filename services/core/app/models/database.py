@@ -134,8 +134,24 @@ class Case(Base):
     application_number: Mapped[str | None] = mapped_column(String)
     # Номер входящего документа (необязательный).
     incoming_number: Mapped[str | None] = mapped_column(String)
-    # Дата поступления дела (необязательная).
+    # Дата поступления дела — метка «Дата поступления» (гражданские дела).
+    # С registration_date взаимоисключающие: на карточке всегда ровно одна из двух.
     receipt_date: Mapped[date | None] = mapped_column(Date)
+    # Дата регистрации — метка «Дата регистрации» (дела по КоАП). Раньше склеивалась
+    # с receipt_date в одно поле, теперь хранится отдельно.
+    registration_date: Mapped[date | None] = mapped_column(Date)
+    # Дата рассмотрения дела в первой инстанции (метка «Дата рассмотрения дела в первой
+    # инстанции»).
+    first_instance_date: Mapped[date | None] = mapped_column(Date)
+    # Решение первой инстанции строкой как есть: «Удовлетворено, 21.05.2026». Дату из неё
+    # не выделяем — она совпадает с first_instance_date (проверено на всех делах, где
+    # решение есть). Формат тот же, что у status.
+    first_instance_decision: Mapped[str | None] = mapped_column(String)
+    # Дата вступления решения в силу (метка «Дата вступления решения в силу»).
+    decision_effective_date: Mapped[date | None] = mapped_column(Date)
+    # Номер дела в вышестоящей инстанции, напр. «10-0014/2025» (метка «Номер дела
+    # вышестоящей инстанции»). Не путать с code — это номер ДРУГОГО дела.
+    superior_case_number: Mapped[str | None] = mapped_column(String)
     # Категория дела (необязательная).
     category: Mapped[str | None] = mapped_column(String)
     # Текущее состояние дела (необязательное).
@@ -250,7 +266,13 @@ class Side(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     # ФИО/название стороны (обязательное).
     full_name: Mapped[str] = mapped_column(String)
-    # Тип стороны: истец / ответчик / другое (обязательное).
+    # Роль ровно так, как её называет портал: «Истец», «Взыскатель», «Должник»,
+    # «Привлекаемое лицо», «Подсудимый», «Обвиняемый», «Административный истец»…
+    # Словарь ролей у судов открытый, поэтому храним текстом, а не enum'ом.
+    # Пара (full_name, role) — ключ дедупа справочника.
+    role: Mapped[str | None] = mapped_column(String)
+    # Грубая классификация роли для фильтров: истец / ответчик / другое (обязательная).
+    # Всё, что не истец и не ответчик, схлопывается в «Другое» — точная роль в role.
     type: Mapped[SideType] = mapped_column(Enum(SideType))
 
 

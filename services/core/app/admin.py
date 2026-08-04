@@ -154,7 +154,7 @@ class SideAdmin(ModelView, model=Side):
 
     name = "Сторона"
     name_plural = "Стороны"
-    column_list = [Side.id, Side.full_name, Side.type]
+    column_list = [Side.id, Side.full_name, Side.role, Side.type]
 
 
 class EventAdmin(ModelView, model=Event):

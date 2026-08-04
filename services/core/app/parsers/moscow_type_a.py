@@ -46,6 +46,16 @@
 - «Номер заявления» (гражданское) и «Номер дела» (КоАП) — ОДИН И ТОТ ЖЕ слот шаблона.
   Поэтому метку матчим целиком («Номер заявления», «Номер входящего документа»), а не
   по префиксу «Номер»: иначе в application_number уедет номер дела, чьё место в code.
+- Меток, начинающихся на «Номер дела», ДВЕ: «Номер дела» (и её вариант «Номер дела ~
+  материала», разделитель — обычный ASCII «~») и «Номер дела вышестоящей инстанции» —
+  это номер ДРУГОГО дела. Поэтому вышестоящая стоит в CARD_FIELDS первой, а у шаблона
+  номера дела стоит якорь конца строки. Порядок и якорь трогать нельзя.
+- «Дата поступления» и «Дата регистрации» — разные метки разных шаблонов (гражданское /
+  КоАП), у каждой своё поле; на одной карточке встречается ровно одна из них. Обе матчим
+  точно, чтобы не поймать «Дата рассмотрения дела в первой инстанции».
+- Подсудимый и обвиняемый лежат НЕ в блоке «Стороны», а отдельными метками, но по смыслу
+  это стороны по делу — читаем их туда же, роль берём из метки. У подсудимого ФИО
+  обёрнуто в span.participant-with-article, а статья идёт текстом снаружи.
 """
 import re
 from datetime import date, datetime, time
@@ -63,6 +73,15 @@ VALUE_SELECTOR = "div.right"
 JUDGE_LABEL_RE = re.compile(r"^[СсCc]удья\b")
 # Метка блока сторон: латинская или кириллическая «С», затем «тороны».
 SIDES_LABEL_RE = re.compile(r"^[СсCc]тороны\b")
+# Лица, которые лежат НЕ в блоке «Стороны», а отдельными метками, но по смыслу — стороны
+# по делу (уголовные и административные дела). Сама метка и есть роль.
+PARTICIPANT_LABEL_RE = re.compile(r"^([ПпPp]одсудимый|[ОоOo]бвиняемый)\b")
+# У подсудимого ФИО обёрнуто в span, а статья идёт текстом СНАРУЖИ:
+#   <span class="participant-with-article">Светиков Александр Вячеславович</span> (Ст. 158, Ч. 1;)
+# У обвиняемого span'а нет — там просто текст.
+PARTICIPANT_NAME_SELECTOR = "span.participant-with-article"
+# Хвостовая статья в скобках — её надо отрезать, если span'а не оказалось.
+PARTICIPANT_ARTICLE_RE = re.compile(r"\s*\([^()]*\)\s*$")
 
 # Заголовок таблицы событий (движение дела).
 STATE_HISTORY_HEADING = "История состояний"
@@ -141,13 +160,42 @@ CARD_FIELDS = (
         "incoming_number",
         _clean_or_none,
     ),
-    # «Дата поступления» (гражданское) и «Дата регистрации» (КоАП) — один и тот же
-    # смысл в разных шаблонах, кладём в одно поле. Матчим именно эти две метки, чтобы
-    # не поймать «Дата рассмотрения дела в первой инстанции» — у неё своё поле.
+    # ВАЖНО: «Номер дела вышестоящей инстанции» стоит ДО «Номер дела» — иначе префикс
+    # перехватил бы её и номер ДРУГОГО дела уехал бы в code (см. граблю в docstring).
     (
-        re.compile(r"^[ДдDd]ата (поступления|регистрации)\b"),
-        "receipt_date",
+        re.compile(r"^[НнHh]омер дела вышестоящей инстанции\b"),
+        "superior_case_number",
+        _clean_or_none,
+    ),
+    # Номер дела на портале: «Номер дела», «Номер дела ~ материала» (разделитель — обычный
+    # ASCII «~»), «Номер материала». Метки взаимоисключающие, смысл один — кладём в code.
+    # Якорь \s*$ обязателен: без него шаблон поймал бы «Номер дела вышестоящей инстанции».
+    (
+        re.compile(r"^[НнHh]омер (дела( ~ материала)?|материала)\s*$"),
+        "code",
+        _clean_or_none,
+    ),
+    # «Дата поступления» (гражданское) и «Дата регистрации» (КоАП) — РАЗНЫЕ метки разных
+    # шаблонов, у каждой своё поле. На карточке встречаются взаимоисключающе.
+    # Обе матчим точно, чтобы не поймать «Дата рассмотрения дела в первой инстанции».
+    (re.compile(r"^[ДдDd]ата поступления\b"), "receipt_date", _parse_date),
+    (re.compile(r"^[ДдDd]ата регистрации\b"), "registration_date", _parse_date),
+    (
+        re.compile(r"^[ДдDd]ата рассмотрения дела в первой инстанции\b"),
+        "first_instance_date",
         _parse_date,
+    ),
+    (
+        re.compile(r"^[ДдDd]ата вступления решения в силу\b"),
+        "decision_effective_date",
+        _parse_date,
+    ),
+    # Решение храним строкой как есть («Удовлетворено, 21.05.2026»), как и status: дата
+    # внутри дублирует first_instance_date, выделять её отдельно незачем.
+    (
+        re.compile(r"^[РрPp]ешение первой инстанции\b"),
+        "first_instance_decision",
+        _clean_or_none,
     ),
     (re.compile(r"^[КкKk]атегория дела\b"), "category", _clean_or_none),
     (re.compile(r"^[ТтTt]екущее состояние\b"), "status", _clean_or_none),
@@ -327,6 +375,55 @@ def _parse_documents(soup: BeautifulSoup) -> list[dict]:
     return documents
 
 
+def _split_by_br(value_el: Tag) -> list[list]:
+    """Разбить содержимое элемента на куски по <br> (в каждом куске — узлы одного лица)."""
+    chunks: list[list] = [[]]
+    for node in value_el.children:
+        if isinstance(node, Tag) and node.name == "br":
+            chunks.append([])
+        else:
+            chunks[-1].append(node)
+    return chunks
+
+
+def _chunk_text(nodes: list) -> str:
+    """Текст куска: и теги, и голые строки."""
+    return _clean(
+        "".join(node.get_text() if isinstance(node, Tag) else str(node) for node in nodes)
+    )
+
+
+def _participant_name(nodes: list) -> str | None:
+    """ФИО из span.participant-with-article внутри куска (или None, если span'а нет)."""
+    for node in nodes:
+        if not isinstance(node, Tag):
+            continue
+        if node.name == "span" and "participant-with-article" in (node.get("class") or []):
+            return _clean(node.get_text())
+        inner = node.select_one(PARTICIPANT_NAME_SELECTOR)
+        if inner is not None:
+            return _clean(inner.get_text())
+    return None
+
+
+def _parse_participants(role: str, value_el: Tag) -> list[dict]:
+    """Разобрать метку-роль («Подсудимый», «Обвиняемый») в список {"role", "full_name"}.
+
+    Лиц может быть несколько — они разделены <br>, как и в блоке «Стороны». В каждом куске
+    ФИО берём из span.participant-with-article, а если span'а нет — из текста куска с
+    отрезанной хвостовой статьёй в скобках. Статья («Ст. 158, Ч. 1;») в ФИО попасть не
+    должна: иначе одно лицо с разными статьями стало бы разными сторонами справочника.
+    """
+    participants: list[dict] = []
+    for nodes in _split_by_br(value_el):
+        full_name = _participant_name(nodes)
+        if full_name is None:
+            full_name = _clean(PARTICIPANT_ARTICLE_RE.sub("", _chunk_text(nodes)))
+        if full_name:
+            participants.append({"role": role, "full_name": full_name})
+    return participants
+
+
 def _parse_sides(value_el: Tag) -> list[dict]:
     """Разобрать .right блока «Стороны» в список {"role", "full_name"}.
 
@@ -386,6 +483,10 @@ class MoscowTypeAParser(CaseParser):
                     judge_names.append(name)
             elif SIDES_LABEL_RE.match(label):
                 sides.extend(_parse_sides(value_el))
+            elif PARTICIPANT_LABEL_RE.match(label):
+                # Подсудимый/обвиняемый лежат отдельными метками, но это тоже стороны:
+                # роль берём из самой метки.
+                sides.extend(_parse_participants(label, value_el))
             else:
                 for label_re, field, convert in CARD_FIELDS:
                     if label_re.match(label):

@@ -47,6 +47,10 @@ def _log_changes(uid: str, changes: CaseChanges) -> None:
     if not changes.has_changes():
         logger.info("Дело %s: изменений нет", uid)
         return
+    for change in changes.field_changes:
+        logger.info(
+            "Изменилось поле дела %s: %s: %r -> %r", uid, change.field, change.old, change.new
+        )
     for event in changes.new_events:
         logger.info("Новое событие по делу %s: %s — %s", uid, event.event_date, event.state_description)
     for event in changes.updated_events:

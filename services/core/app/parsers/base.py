@@ -26,11 +26,20 @@ class CaseParser(ABC):
               # Скалярные поля Case — их подхватывает CaseRepository.upsert_by_uid.
               "application_number": "М-2342/463/2026" | None,
               "incoming_number": "02609/2026" | None,
-              "receipt_date": date | None,
+              "code": "02-0634/2/2026" | None,          # «Номер дела [~ материала]»
+              "receipt_date": date | None,              # «Дата поступления»
+              "registration_date": date | None,         # «Дата регистрации»
+              "first_instance_date": date | None,
+              "first_instance_decision": "Удовлетворено, 21.05.2026" | None,
+              "decision_effective_date": date | None,
+              "superior_case_number": "10-0014/2025" | None,  # номер ДРУГОГО дела
               "category": "124 - О взыскании платы за жилую площадь..." | None,
               "status": "Зарегистрировано (10.07.2026)" | None,
 
               "judge_names": ["Каурова Д.С.", ...],
+              # Роль — ровно как на портале: «Истец», «Взыскатель», «Должник»,
+              # «Подсудимый», «Обвиняемый»… Подсудимый и обвиняемый лежат отдельными
+              # метками карточки, но попадают сюда же.
               "sides": [{"role": "Истец", "full_name": "..."}, ...],
               "events": [
                 {"event_date": date, "state_description": "...",

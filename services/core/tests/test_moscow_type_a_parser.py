@@ -115,6 +115,103 @@ def test_executive_documents_not_taken_for_documents() -> None:
     assert not any("Штраф как вид наказания" in d["document_type"] for d in documents)
 
 
+def _card(rows: str) -> dict:
+    """Разобрать карточку из пар «метка/значение» (для меток, которых нет в фикстурах)."""
+    return MoscowTypeAParser().parse(
+        f'<html><body><div class="detail-cart">{rows}</div></body></html>'
+    )
+
+
+def _row(label: str, value: str) -> str:
+    return f'<div class="row_card"><div class="left">{label}</div><div class="right">{value}</div></div>'
+
+
+def test_receipt_and_registration_dates_are_separate() -> None:
+    """«Дата поступления» и «Дата регистрации» — разные поля, а не одно склеенное.
+
+    На карточке встречается ровно одна из двух, поэтому вторая обязана остаться None.
+    """
+    civil = _parse("case_details_page.html")       # гражданское: «Дата поступления»
+    admin = _parse("case_details_page_2.html")     # КоАП: «Дата регистрации»
+
+    assert civil["receipt_date"] is not None and civil["registration_date"] is None
+    assert admin["registration_date"] is not None and admin["receipt_date"] is None
+
+
+def test_case_number_parsed_into_code() -> None:
+    """«Номер дела» едет в code (раньше метка не парсилась вовсе)."""
+    assert _parse("case_details_page_2.html")["code"] == "05-0444/1/2026"
+
+
+def test_superior_case_number_does_not_leak_into_code() -> None:
+    """«Номер дела вышестоящей инстанции» — номер ДРУГОГО дела, в code попасть не должен.
+
+    Обе метки начинаются одинаково, поэтому порядок в CARD_FIELDS и якорь конца строки
+    у «Номера дела» критичны.
+    """
+    card = _card(
+        _row("Номер дела", "01-0005/23/2026")
+        + _row("Номер дела вышестоящей инстанции", "10-0014/2025")
+    )
+
+    assert card["code"] == "01-0005/23/2026"
+    assert card["superior_case_number"] == "10-0014/2025"
+
+
+def test_first_instance_fields_parsed() -> None:
+    """Решение первой инстанции храним строкой как есть, дата — отдельным полем."""
+    card = _card(
+        _row("Дата рассмотрения дела в первой инстанции", "21.05.2026")
+        + _row("Решение первой инстанции", "Удовлетворено, 21.05.2026")
+        + _row("Дата вступления решения в силу", "23.06.2026")
+    )
+
+    assert card["first_instance_date"] == date(2026, 5, 21)
+    assert card["first_instance_decision"] == "Удовлетворено, 21.05.2026"
+    assert card["decision_effective_date"] == date(2026, 6, 23)
+
+
+def test_defendant_read_as_side_without_article() -> None:
+    """«Подсудимый» попадает в стороны, статья в ФИО не уезжает.
+
+    ФИО лежит в span.participant-with-article, статья — текстом снаружи.
+    """
+    card = _card(
+        _row(
+            "Подсудимый",
+            '<span class="participant-with-article">Светиков Александр Вячеславович</span>'
+            " (Ст. 158, Ч. 1;)<br/>",
+        )
+    )
+
+    assert card["sides"] == [
+        {"role": "Подсудимый", "full_name": "Светиков Александр Вячеславович"}
+    ]
+
+
+def test_accused_without_span_read_as_side() -> None:
+    """У «Обвиняемого» span'а нет — берём текст как есть."""
+    card = _card(_row("Обвиняемый", "Турсынбаев Мырзабек Ниетбай Улы<br/>"))
+
+    assert card["sides"] == [
+        {"role": "Обвиняемый", "full_name": "Турсынбаев Мырзабек Ниетбай Улы"}
+    ]
+
+
+def test_several_defendants_split_by_br() -> None:
+    """Несколько подсудимых в одной метке разделены <br> — читаем всех."""
+    card = _card(
+        _row(
+            "Подсудимый",
+            '<span class="participant-with-article">Первый И.И.</span> (Ст. 158, Ч. 1;)<br/>'
+            '<span class="participant-with-article">Второй П.П.</span> (Ст. 159, Ч. 2;)<br/>',
+        )
+    )
+
+    assert [s["full_name"] for s in card["sides"]] == ["Первый И.И.", "Второй П.П."]
+    assert {s["role"] for s in card["sides"]} == {"Подсудимый"}
+
+
 def test_duplicate_documents_all_returned() -> None:
     """Одинаковые строки не схлопываются парсером: их различает репозиторий по позиции."""
     documents = _parse("case_details_page.html")["documents"]

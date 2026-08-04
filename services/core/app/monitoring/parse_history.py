@@ -18,6 +18,7 @@ from app.models.database import (
     Side,
 )
 from app.monitoring.case_update import CaseChanges
+from app.repositories import CaseFieldChange
 
 # Статусы записи истории (что вообще произошло за этот вызов парсинга).
 STATUS_CHANGED = "changed"          # дело обновлено, есть изменения
@@ -69,6 +70,18 @@ def _session_to_dict(session: CourtSession) -> dict:
     }
 
 
+def _field_change_to_dict(change: CaseFieldChange) -> dict:
+    """Изменение поля дела — в компактный вид.
+
+    Даты приводим к ISO: JSON не умеет date, а в полях дела их большинство.
+    """
+    return {
+        "field": change.field,
+        "old": _iso(change.old) if isinstance(change.old, date) else change.old,
+        "new": _iso(change.new) if isinstance(change.new, date) else change.new,
+    }
+
+
 def _document_to_dict(document: Document) -> dict:
     """Документ — в компактный вид.
 
@@ -96,6 +109,10 @@ def changes_to_dict(changes: CaseChanges) -> dict:
     местонахождений атрибуты в этот момент ещё загружены в сессии.
     """
     return {
+        # Скалярные поля самого дела: что изменилось со времени прошлого разбора.
+        "case": {
+            "changed": [_field_change_to_dict(f) for f in changes.field_changes],
+        },
         "events": {
             "new": [_event_to_dict(e) for e in changes.new_events],
             "updated": [_event_to_dict(e) for e in changes.updated_events],
