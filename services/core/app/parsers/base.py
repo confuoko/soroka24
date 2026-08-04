@@ -42,5 +42,14 @@ class CaseParser(ABC):
                  "comment": "..." | None},
                 ...
               ],
+              # Судебные заседания. session_date — дата И время: портал отдаёт их одной
+              # колонкой, и время входит в identity заседания (см. court_session_uid).
+              # У приказных дел вкладки заседаний нет — список пустой.
+              "court_sessions": [
+                {"session_date": datetime, "place": "2 - 124489, Зеленоград..." | None,
+                 "stage": "Судебное заседание", "result": "Отложено" | None,
+                 "basis": "Неявка подсудимого" | None},
+                ...
+              ],
             }
         """

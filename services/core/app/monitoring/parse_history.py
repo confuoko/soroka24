@@ -8,7 +8,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from app.config import DIFF_HISTORY_LIMIT
-from app.models.database import Case, Event, Judge, PlaceHistory, Side
+from app.models.database import Case, CourtSession, Event, Judge, PlaceHistory, Side
 from app.monitoring.case_update import CaseChanges
 
 # Статусы записи истории (что вообще произошло за этот вызов парсинга).
@@ -43,6 +43,24 @@ def _place_to_dict(place: PlaceHistory) -> dict:
     }
 
 
+def _session_to_dict(session: CourtSession) -> dict:
+    """Судебное заседание — в компактный вид.
+
+    session_date отдаём с временем: оно входит в identity заседания и пользователю важно
+    не меньше даты («заседание 14.08 в 10:00»).
+    """
+    return {
+        "uid": str(session.uid),
+        "session_date": session.session_date.isoformat()
+        if session.session_date is not None
+        else None,
+        "place": session.place,
+        "stage": session.stage,
+        "result": session.result,
+        "basis": session.basis,
+    }
+
+
 def _judge_to_dict(judge: Judge) -> dict:
     return {"id": judge.id, "full_name": judge.full_name}
 
@@ -67,6 +85,11 @@ def changes_to_dict(changes: CaseChanges) -> dict:
             "new": [_place_to_dict(p) for p in changes.new_places],
             "updated": [_place_to_dict(p) for p in changes.updated_places],
             "removed": [_place_to_dict(p) for p in changes.removed_places],
+        },
+        "sessions": {
+            "new": [_session_to_dict(s) for s in changes.new_sessions],
+            "updated": [_session_to_dict(s) for s in changes.updated_sessions],
+            "removed": [_session_to_dict(s) for s in changes.removed_sessions],
         },
         "judges": {
             "added": [_judge_to_dict(j) for j in changes.added_judges],

@@ -59,6 +59,15 @@ def _log_changes(uid: str, changes: CaseChanges) -> None:
         logger.info("Изменён комментарий местонахождения по делу %s: %s — %s", uid, place.place_date, place.place_description)
     for place in changes.removed_places:
         logger.info("Удалено местонахождение по делу %s: %s — %s", uid, place.place_date, place.place_description)
+    for session in changes.new_sessions:
+        logger.info("Назначено заседание по делу %s: %s — %s", uid, session.session_date, session.stage)
+    for session in changes.updated_sessions:
+        logger.info(
+            "Изменено заседание по делу %s: %s — %s (результат: %s)",
+            uid, session.session_date, session.stage, session.result,
+        )
+    for session in changes.removed_sessions:
+        logger.info("Снято заседание по делу %s: %s — %s", uid, session.session_date, session.stage)
     for judge in changes.added_judges:
         logger.info("Привязан судья: %s к делу %s", judge.full_name, uid)
     for judge in changes.removed_judges:

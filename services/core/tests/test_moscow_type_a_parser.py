@@ -2,7 +2,7 @@
 
 Парсер — чистая функция HTML -> данные, поэтому тестам не нужны ни БД, ни Chromium.
 """
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -56,3 +56,27 @@ def test_state_history_not_confused_with_place_history() -> None:
     assert events, "события должны разобраться"
     descriptions = {e["state_description"] for e in events}
     assert "В канцелярии" not in descriptions
+
+
+def test_court_sessions_parsed() -> None:
+    """Разбираем вкладку «Судебные заседания»: время сохраняется, пустые колонки → None.
+
+    Ровно одно заседание — важная проверка: клон этой таблицы лежит в div#modalTable, и
+    если искать её по классу, а не по id="sessions", результат удвоится.
+    """
+    result = _parse("case_details_page_2.html")
+
+    assert result["court_sessions"] == [
+        {
+            "session_date": datetime(2026, 6, 1, 14, 5),
+            "place": "442 - 124365 Москва, Зеленоград, корп. 2016",
+            "stage": "Судебное заседание",
+            "result": "Рассмотрение завершено",
+            "basis": None,
+        }
+    ]
+
+
+def test_court_sessions_absent_tab() -> None:
+    """У приказных дел вкладки заседаний нет совсем — пустой список, а не падение."""
+    assert _parse("case_details_page.html")["court_sessions"] == []

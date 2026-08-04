@@ -116,8 +116,9 @@ class DocumentOut(_FromORM):
 class CourtSessionOut(_FromORM):
     """Судебное заседание по делу."""
 
-    id: int
-    session_date: date
+    uid: uuid.UUID
+    # NOT NULL в БД: дата И время входят в identity заседания (см. court_session_uid).
+    session_date: datetime
     place: Optional[str] = None
     stage: str
     result: Optional[str] = None

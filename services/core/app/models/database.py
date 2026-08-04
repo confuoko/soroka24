@@ -12,6 +12,7 @@ from sqlalchemy import (
     BigInteger,
     Column,
     Date,
+    DateTime,
     Enum,
     ForeignKey,
     String,
@@ -380,20 +381,33 @@ class CourtSession(Base):
     __tablename__ = "court_session"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Стабильный внешний идентификатор (заседаний много) — генерируем сами.
+    uid: Mapped[uuid.UUID] = mapped_column(
+        Uuid, default=uuid.uuid4, unique=True, index=True
+    )
     # Дело-владелец; при удалении дела заседание удаляется (CASCADE).
     case_id: Mapped[int] = mapped_column(
         ForeignKey("case.id", ondelete="CASCADE"), index=True
     )
-    # Дата заседания (обязательная).
-    session_date: Mapped[date] = mapped_column(Date)
-    # Место проведения (необязательное).
+    # Дата и ВРЕМЯ заседания (обязательные): портал отдаёт их одной колонкой
+    # («30.07.2026 16:50»), и вместе со stage они образуют identity заседания, из которой
+    # считается uid (court_session_uid). Без даты uid не вычислить, поэтому NOT NULL.
+    session_date: Mapped[datetime] = mapped_column(DateTime)
+    # Место проведения — «зал» портала: номер участка и адрес (необязательное, изменяемое).
     place: Mapped[str | None] = mapped_column(String)
-    # Стадия заседания (обязательная).
+    # Стадия заседания (обязательная): «Судебное заседание», «Беседа». Входит в identity.
     stage: Mapped[str] = mapped_column(String)
-    # Результат заседания (необязательный).
+    # Результат заседания (необязательный, изменяемый): у будущего заседания его ещё нет,
+    # потом появляется «Отложено» / «Рассмотрение завершено».
     result: Mapped[str | None] = mapped_column(String)
-    # Основание (необязательное).
+    # Основание (необязательное, изменяемое): например «Неявка подсудимого» при отложении.
     basis: Mapped[str | None] = mapped_column(String)
+    # Когда заседание сохранено в БД.
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    # Когда запись последний раз обновлялась (обновляется автоматически при UPDATE).
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now()
+    )
 
     case: Mapped["Case"] = relationship(back_populates="court_sessions")
 

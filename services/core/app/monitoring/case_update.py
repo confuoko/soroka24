@@ -1,4 +1,4 @@
-"""Обновление дела по данным парсера: сверка судей, сторон, событий и местонахождений + diff.
+"""Обновление дела по данным парсера: сверка судей, сторон, событий, местонахождений и заседаний + diff.
 
 Вынесено из Celery-таска отдельной функцией, чтобы её можно было тестировать на
 чистой сессии БД, без Chromium и брокера. Источник истины — страница суда:
@@ -9,9 +9,18 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.models.database import Case, Court, Event, Judge, PlaceHistory, Side
+from app.models.database import (
+    Case,
+    Court,
+    CourtSession,
+    Event,
+    Judge,
+    PlaceHistory,
+    Side,
+)
 from app.repositories import (
     CaseRepository,
+    CourtSessionRepository,
     EventRepository,
     JudgeRepository,
     PlaceHistoryRepository,
@@ -30,6 +39,9 @@ class CaseChanges:
     new_places: list[PlaceHistory]      # новые строки «Истории местонахождения»
     updated_places: list[PlaceHistory]  # местонахождения, у которых поменялся comment
     removed_places: list[PlaceHistory]  # местонахождения, пропавшие со страницы (удалены)
+    new_sessions: list[CourtSession]      # назначенные судебные заседания
+    updated_sessions: list[CourtSession]  # заседания, у которых поменялся place/result/basis
+    removed_sessions: list[CourtSession]  # заседания, пропавшие со страницы (сняты)
     added_judges: list[Judge]     # привязанные судьи
     removed_judges: list[Judge]   # отвязанные судьи
     added_sides: list[Side]       # привязанные стороны
@@ -44,6 +56,9 @@ class CaseChanges:
                 self.new_places,
                 self.updated_places,
                 self.removed_places,
+                self.new_sessions,
+                self.updated_sessions,
+                self.removed_sessions,
                 self.added_judges,
                 self.removed_judges,
                 self.added_sides,
@@ -104,6 +119,12 @@ def update_case(
         session
     ).sync_place_history(case, data.get("place_history", []))
 
+    # 6. Судебные заседания — сверка со страницей (new/updated/removed).
+    #    data.get(..., []) — у приказных дел вкладки заседаний на странице нет совсем.
+    new_sessions, updated_sessions, removed_sessions = CourtSessionRepository(
+        session
+    ).sync_court_sessions(case, data.get("court_sessions", []))
+
     return CaseChanges(
         case=case,
         new_events=new_events,
@@ -112,6 +133,9 @@ def update_case(
         new_places=new_places,
         updated_places=updated_places,
         removed_places=removed_places,
+        new_sessions=new_sessions,
+        updated_sessions=updated_sessions,
+        removed_sessions=removed_sessions,
         added_judges=added_judges,
         removed_judges=removed_judges,
         added_sides=added_sides,

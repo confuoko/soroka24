@@ -1,7 +1,7 @@
 """Парсер карточки дела мировых судов Москвы (mos-sud.ru) — страница типа A.
 
-Достаёт скалярные поля дела, ФИО судьи, стороны по делу, события «Истории состояний»
-и строки «Истории местонахождения».
+Достаёт скалярные поля дела, ФИО судьи, стороны по делу, события «Истории состояний»,
+строки «Истории местонахождения» и судебные заседания.
 - Скалярные поля (номер заявления, номер входящего, дата поступления, категория,
   текущее состояние), судья и стороны лежат в «карточке» — блоке пар «метка/значение»:
   div.detail-cart div.row_card > (.left = метка, .right = значение).
@@ -9,6 +9,8 @@
   (3 колонки: Дата / Состояние / Документ-основание).
 - Местонахождения — в таблице под <h3>История местонахождения</h3>
   (3 колонки: Дата / Местонахождение / Комментарий), она идёт ниже в том же контейнере.
+- Судебные заседания — в отдельной вкладке div#sessions (внутри #tabs-2), 6 колонок:
+  Дата и время / Зал / Стадия / Результат / Основание / Проводилась видеозапись.
 
 ВАЖНО (грабли разметки портала):
 - В метке «Cудья» первая буква — ЛАТИНСКАЯ «C» (U+0043), а не кириллическая «С».
@@ -22,7 +24,9 @@
   по тексту заголовка <h3>, а не по классу.
 - В конце страницы те же таблицы продублированы скрытыми клонами внутри
   div#modalTable (мобильные модалки). У клонов НЕТ <h3>, поэтому якорь по заголовку
-  спасает от дублей — уходить с него на поиск по классу нельзя.
+  спасает от дублей — уходить с него на поиск по классу нельзя. Таблицу заседаний это
+  тоже касается: её клон лежит там же, но id="sessions" клон НЕ несёт, поэтому анкор по
+  id защищает от удвоения так же, как <h3> защищает таблицы историй.
 - Набор меток карточки РАЗЛИЧАЕТСЯ по типам дел: у гражданского есть «Номер заявления»,
   «Номер входящего документа», «Дата поступления», «Категория дела», а у дела по КоАП
   вместо них «Номер дела», «Дата регистрации», «Статья КоАП РФ». Отсутствующая метка
@@ -34,7 +38,7 @@
   по префиксу «Номер»: иначе в application_number уедет номер дела, чьё место в code.
 """
 import re
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from bs4 import BeautifulSoup, Tag
 
@@ -54,8 +58,13 @@ SIDES_LABEL_RE = re.compile(r"^[СсCc]тороны\b")
 STATE_HISTORY_HEADING = "История состояний"
 # Заголовок таблицы истории местонахождения дела.
 PLACE_HISTORY_HEADING = "История местонахождения"
+# Вкладка «Судебные заседания»: <div id="sessions"> внутри #tabs-2. У неё, в отличие от
+# таблиц историй, НЕТ заголовка <h3> — поэтому анкор здесь id, а не текст заголовка.
+SESSIONS_CONTAINER = "#sessions"
 # Формат дат на портале.
 DATE_FORMAT = "%d.%m.%Y"
+# Формат «Дата и время» в таблице заседаний: «30.07.2026 16:50».
+DATETIME_FORMAT = "%d.%m.%Y %H:%M"
 
 
 def _clean(text: str) -> str:
@@ -74,9 +83,35 @@ def _parse_date(text: str) -> date | None:
         return None
 
 
+def _parse_datetime(text: str) -> datetime | None:
+    """Разобрать «ДД.ММ.ГГГГ ЧЧ:ММ»; пустое/некорректное значение → None.
+
+    Если времени в ячейке нет, откатываемся на одну дату и полночь: время входит в
+    identity заседания, поэтому подстановка должна быть детерминированной — иначе uid
+    той же строки менялся бы между парсингами.
+    """
+    text = _clean(text)
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text, DATETIME_FORMAT)
+    except ValueError:
+        only_date = _parse_date(text)
+        return datetime.combine(only_date, time.min) if only_date is not None else None
+
+
 def _clean_or_none(text: str) -> str | None:
     """Как _clean, но пустое значение → None (в БД такому полю место NULL, а не '')."""
     return _clean(text) or None
+
+
+def _cell_or_none(cells: list, index: int) -> str | None:
+    """Значение ячейки по индексу через _clean_or_none; нет такой колонки → None.
+
+    Нужен для хвостовых колонок таблицы заседаний: их может не оказаться в разметке,
+    и падать из-за этого нельзя.
+    """
+    return _clean_or_none(cells[index].get_text()) if index < len(cells) else None
 
 
 # Скалярные поля дела из карточки: (метка, поле Case, преобразование значения).
@@ -183,6 +218,47 @@ def _parse_place_history(soup: BeautifulSoup) -> list[dict]:
     return places
 
 
+def _parse_court_sessions(soup: BeautifulSoup) -> list[dict]:
+    """Разобрать вкладку «Судебные заседания» в список заседаний.
+
+    Возвращает {"session_date": datetime, "place": str|None, "stage": str,
+    "result": str|None, "basis": str|None}. Обязательны дата-время и стадия (образуют
+    identity заседания) — строки без любого из них пропускаем.
+
+    Колонок на портале шесть: Дата и время / Зал / Стадия / Результат / Основание /
+    Проводилась видеозапись. Последнюю не сохраняем: она пуста во всех виденных делах.
+    """
+    box = soup.select_one(SESSIONS_CONTAINER)
+    if box is None:
+        return []  # у приказных дел вкладки заседаний нет совсем — это норма
+
+    sessions: list[dict] = []
+    for row in box.select("table tbody tr"):
+        cells = row.find_all("td")
+        # Минимум — дата, зал, стадия: из них берётся identity. Хвостовых колонок
+        # («Результат», «Основание») в разметке может не оказаться.
+        if len(cells) < 3:
+            continue
+
+        session_at = _parse_datetime(cells[0].get_text())
+        stage = _clean(cells[2].get_text())
+
+        # Дата-время и стадия обязательны — иначе заседание не может участвовать в детекте.
+        if session_at is None or not stage:
+            continue
+
+        sessions.append(
+            {
+                "session_date": session_at,
+                "place": _clean_or_none(cells[1].get_text()),
+                "stage": stage,
+                "result": _cell_or_none(cells, 3),
+                "basis": _cell_or_none(cells, 4),
+            }
+        )
+    return sessions
+
+
 def _parse_sides(value_el: Tag) -> list[dict]:
     """Разобрать .right блока «Стороны» в список {"role", "full_name"}.
 
@@ -256,10 +332,15 @@ class MoscowTypeAParser(CaseParser):
         # Соседняя таблица под <h3>История местонахождения</h3>.
         place_history = _parse_place_history(soup)
 
+        # === СУДЕБНЫЕ ЗАСЕДАНИЯ ============================================
+        # Отдельная вкладка div#sessions (см. _parse_court_sessions).
+        court_sessions = _parse_court_sessions(soup)
+
         return {
             **card,
             "judge_names": judge_names,
             "sides": sides,
             "events": events,
             "place_history": place_history,
+            "court_sessions": court_sessions,
         }

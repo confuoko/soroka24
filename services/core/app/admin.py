@@ -194,7 +194,15 @@ class CourtSessionAdmin(ModelView, model=CourtSession):
 
     name = "Заседание"
     name_plural = "Заседания"
-    column_list = [CourtSession.id, CourtSession.case_id, CourtSession.session_date, CourtSession.stage]
+    # Результат показываем в списке: у будущего заседания он пуст и заполняется позже —
+    # по нему сразу видно, прошло заседание или ещё нет.
+    column_list = [
+        CourtSession.id,
+        CourtSession.case_id,
+        CourtSession.session_date,
+        CourtSession.stage,
+        CourtSession.result,
+    ]
 
 
 class CaseLinkAdmin(ModelView, model=CaseLink):
