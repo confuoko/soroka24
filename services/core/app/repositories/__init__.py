@@ -2,6 +2,7 @@
 from app.repositories.cases import CaseRepository
 from app.repositories.court_sessions import CourtSessionRepository
 from app.repositories.courts import CourtRepository
+from app.repositories.documents import DocumentRepository
 from app.repositories.events import EventRepository
 from app.repositories.judges import JudgeRepository
 from app.repositories.place_history import PlaceHistoryRepository
@@ -12,6 +13,7 @@ __all__ = [
     "CaseRepository",
     "CourtRepository",
     "CourtSessionRepository",
+    "DocumentRepository",
     "EventRepository",
     "JudgeRepository",
     "PlaceHistoryRepository",

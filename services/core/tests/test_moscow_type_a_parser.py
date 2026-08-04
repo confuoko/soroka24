@@ -80,3 +80,45 @@ def test_court_sessions_parsed() -> None:
 def test_court_sessions_absent_tab() -> None:
     """У приказных дел вкладки заседаний нет совсем — пустой список, а не падение."""
     assert _parse("case_details_page.html")["court_sessions"] == []
+
+
+def test_documents_parsed() -> None:
+    """Разбираем вкладку «Документы»: только дата и вид, третья колонка игнорируется.
+
+    У этой страницы во второй строке в «Тексте документа» лежит ссылка «Скачать файл» —
+    в результат она попасть не должна: ни текста, ни файла мы не храним.
+    """
+    result = _parse("case_details_page_2.html")
+
+    assert result["documents"] == [
+        {
+            "document_date": date(2026, 5, 14),
+            "document_type": "Определение о назначении дела об административном правонарушении к рассмотрению",
+        },
+        {
+            "document_date": date(2026, 6, 1),
+            "document_type": "Постановление о назначении административного наказания",
+        },
+        {"document_date": date(2026, 7, 12), "document_type": "Электронное уведомление"},
+    ]
+
+
+def test_executive_documents_not_taken_for_documents() -> None:
+    """Соседняя таблица «Исполнительные документы» не попадает в документы.
+
+    Она лежит в ТОМ ЖЕ контейнере #act-documents, но это другая сущность. Если брать
+    строки контейнера подряд, её запись приезжает мусором с пустой датой.
+    """
+    documents = _parse("case_details_page_2.html")["documents"]
+
+    assert all(d["document_date"] is not None for d in documents)
+    assert not any("Штраф как вид наказания" in d["document_type"] for d in documents)
+
+
+def test_duplicate_documents_all_returned() -> None:
+    """Одинаковые строки не схлопываются парсером: их различает репозиторий по позиции."""
+    documents = _parse("case_details_page.html")["documents"]
+
+    attachments = [d for d in documents if d["document_type"] == "Приложение"]
+    assert len(attachments) > 1
+    assert all(d["document_date"] == date(2026, 7, 10) for d in attachments)

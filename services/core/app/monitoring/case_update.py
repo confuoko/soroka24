@@ -13,6 +13,7 @@ from app.models.database import (
     Case,
     Court,
     CourtSession,
+    Document,
     Event,
     Judge,
     PlaceHistory,
@@ -21,6 +22,7 @@ from app.models.database import (
 from app.repositories import (
     CaseRepository,
     CourtSessionRepository,
+    DocumentRepository,
     EventRepository,
     JudgeRepository,
     PlaceHistoryRepository,
@@ -42,6 +44,10 @@ class CaseChanges:
     new_sessions: list[CourtSession]      # назначенные судебные заседания
     updated_sessions: list[CourtSession]  # заседания, у которых поменялся place/result/basis
     removed_sessions: list[CourtSession]  # заседания, пропавшие со страницы (сняты)
+    # У документов нет ветки updated: изменяемых полей не осталось — дата и вид входят в
+    # identity, а текст документа мы не храним.
+    new_documents: list[Document]         # новые документы по делу
+    removed_documents: list[Document]     # документы, пропавшие со страницы
     added_judges: list[Judge]     # привязанные судьи
     removed_judges: list[Judge]   # отвязанные судьи
     added_sides: list[Side]       # привязанные стороны
@@ -59,6 +65,8 @@ class CaseChanges:
                 self.new_sessions,
                 self.updated_sessions,
                 self.removed_sessions,
+                self.new_documents,
+                self.removed_documents,
                 self.added_judges,
                 self.removed_judges,
                 self.added_sides,
@@ -125,6 +133,11 @@ def update_case(
         session
     ).sync_court_sessions(case, data.get("court_sessions", []))
 
+    # 7. Документы — сверка со страницей (new/removed, изменяемых полей нет).
+    new_documents, removed_documents = DocumentRepository(session).sync_documents(
+        case, data.get("documents", [])
+    )
+
     return CaseChanges(
         case=case,
         new_events=new_events,
@@ -136,6 +149,8 @@ def update_case(
         new_sessions=new_sessions,
         updated_sessions=updated_sessions,
         removed_sessions=removed_sessions,
+        new_documents=new_documents,
+        removed_documents=removed_documents,
         added_judges=added_judges,
         removed_judges=removed_judges,
         added_sides=added_sides,

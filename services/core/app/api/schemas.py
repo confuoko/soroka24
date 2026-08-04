@@ -102,14 +102,15 @@ class InstanceOut(_FromORM):
 
 
 class DocumentOut(_FromORM):
-    """Документ по делу.
+    """Документ по делу — только метаданные.
 
-    document_text намеренно не отдаём — он может быть очень большим; колонка в БД
-    остаётся, в JSON не попадает.
+    document_text не отдаём, потому что мы его и не храним: ни текст документа, ни ссылку
+    на файл парсер не сохраняет. Колонка в БД осталась пустой для совместимости.
     """
 
     uid: uuid.UUID
-    document_date: Optional[date] = None
+    # NOT NULL в БД: дата входит в identity документа (см. document_uid).
+    document_date: date
     document_type: str
 
 

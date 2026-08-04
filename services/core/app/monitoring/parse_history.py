@@ -8,7 +8,15 @@ from datetime import date, datetime
 from typing import Optional
 
 from app.config import DIFF_HISTORY_LIMIT
-from app.models.database import Case, CourtSession, Event, Judge, PlaceHistory, Side
+from app.models.database import (
+    Case,
+    CourtSession,
+    Document,
+    Event,
+    Judge,
+    PlaceHistory,
+    Side,
+)
 from app.monitoring.case_update import CaseChanges
 
 # Статусы записи истории (что вообще произошло за этот вызов парсинга).
@@ -61,6 +69,18 @@ def _session_to_dict(session: CourtSession) -> dict:
     }
 
 
+def _document_to_dict(document: Document) -> dict:
+    """Документ — в компактный вид.
+
+    Только метаданные: ни текста документа, ни ссылки на файл мы не храним.
+    """
+    return {
+        "uid": str(document.uid),
+        "document_date": _iso(document.document_date),
+        "document_type": document.document_type,
+    }
+
+
 def _judge_to_dict(judge: Judge) -> dict:
     return {"id": judge.id, "full_name": judge.full_name}
 
@@ -90,6 +110,11 @@ def changes_to_dict(changes: CaseChanges) -> dict:
             "new": [_session_to_dict(s) for s in changes.new_sessions],
             "updated": [_session_to_dict(s) for s in changes.updated_sessions],
             "removed": [_session_to_dict(s) for s in changes.removed_sessions],
+        },
+        # У документов нет updated: изменяемых полей у них не осталось.
+        "documents": {
+            "new": [_document_to_dict(d) for d in changes.new_documents],
+            "removed": [_document_to_dict(d) for d in changes.removed_documents],
         },
         "judges": {
             "added": [_judge_to_dict(j) for j in changes.added_judges],

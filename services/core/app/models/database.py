@@ -360,19 +360,29 @@ class Document(Base):
     case_id: Mapped[int] = mapped_column(
         ForeignKey("case.id", ondelete="CASCADE"), index=True
     )
-    # Дата документа (необязательная).
-    document_date: Mapped[date | None] = mapped_column(Date)
-    # Вид/тип документа (обязательный).
+    # Дата документа (обязательная): вместе с document_type и номером повторения строки на
+    # странице образует identity документа, из которой считается uid (document_uid).
+    # Без даты uid не вычислить, поэтому NOT NULL.
+    document_date: Mapped[date] = mapped_column(Date)
+    # Вид/тип документа (обязательный). Входит в identity.
     document_type: Mapped[str] = mapped_column(String)
-    # Текст документа (необязательный, может быть очень длинным).
+    # Текст документа. НАМЕРЕННО не заполняется: ни текст, ни файл документа мы не храним —
+    # в БД идут только метаданные (дата и вид). Колонка оставлена для совместимости.
     document_text: Mapped[str | None] = mapped_column(Text)
     # Когда документ сохранён в БД.
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    # Когда запись последний раз обновлялась. Для документа фактически всегда равен
+    # created_at: изменяемых полей у него нет (дата и вид входят в identity, текст не
+    # храним). Колонка — для симметрии с остальными дочерними сущностями дела.
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now()
+    )
 
     case: Mapped["Case"] = relationship(back_populates="documents")
 
-    # В рамках одного дела пара «вид документа + дата» уникальна.
-    __table_args__ = (UniqueConstraint("case_id", "document_type", "document_date"),)
+    # UniqueConstraint по (case_id, document_type, document_date) СНЯТ: портал отдаёт до 21
+    # одинаковой строки за одну дату, и мы храним их все, различая номером повторения
+    # внутри uid. Уникальность держит ix_document_uid.
 
 
 class CourtSession(Base):

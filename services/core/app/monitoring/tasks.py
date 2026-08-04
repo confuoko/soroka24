@@ -68,6 +68,10 @@ def _log_changes(uid: str, changes: CaseChanges) -> None:
         )
     for session in changes.removed_sessions:
         logger.info("Снято заседание по делу %s: %s — %s", uid, session.session_date, session.stage)
+    for document in changes.new_documents:
+        logger.info("Новый документ по делу %s: %s — %s", uid, document.document_date, document.document_type)
+    for document in changes.removed_documents:
+        logger.info("Удалён документ по делу %s: %s — %s", uid, document.document_date, document.document_type)
     for judge in changes.added_judges:
         logger.info("Привязан судья: %s к делу %s", judge.full_name, uid)
     for judge in changes.removed_judges:
