@@ -37,9 +37,14 @@ class ChromiumSession:
         if self._playwright is not None:
             self._playwright.stop()
 
-    def goto(self, url: str, timeout: int = NAV_TIMEOUT) -> None:
-        """Открыть URL и дождаться, пока сеть успокоится (отработает JS)."""
-        self.page.goto(url, wait_until="networkidle", timeout=timeout)
+    def goto(self, url: str, timeout: int = NAV_TIMEOUT):
+        """Открыть URL и дождаться, пока сеть успокоится (отработает JS).
+
+        Возвращает Response навигации (или None, если её не было — например переход
+        внутри SPA). Нужен ради HTTP-статуса: по нему видно 403/429, даже когда тело
+        похоже на обычную страницу.
+        """
+        return self.page.goto(url, wait_until="networkidle", timeout=timeout)
 
     def fill(self, selector: str, value: str) -> None:
         """Ввести значение в поле формы."""

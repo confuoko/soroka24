@@ -13,6 +13,7 @@ Case.diff_history дозаписывается запись о том, что и
 """
 from datetime import datetime
 
+from celery.exceptions import Retry
 from celery.utils.log import get_task_logger
 
 from app.celery_app import celery_app
@@ -36,7 +37,7 @@ from app.monitoring.parse_history import (
     last_entry,
 )
 from app.repositories import CaseRepository, CourtRepository, SearchTaskRepository
-from app.storage import save_snapshot, snapshot_sha256
+from app.storage import is_failure_key, save_snapshot, snapshot_sha256
 
 logger = get_task_logger(__name__)
 
@@ -88,7 +89,11 @@ def _take_snapshot(uid: str, html: str, fetched_at: datetime) -> tuple[dict | No
         case = CaseRepository(session).get_by_uid(uid)
         previous = last_entry(case) if case is not None else None
 
-    if previous is not None and previous.get("html_sha256") == sha and previous.get("html_key"):
+    # Ключ переиспользуем только от УСПЕШНОГО парсинга: в последней записи истории теперь
+    # может лежать ключ страницы отказа (капча/блокировка), и подставлять его карточке
+    # нельзя — история дела стала бы ссылаться на мусор.
+    previous_key = previous.get("html_key") if previous is not None else None
+    if previous_key and not is_failure_key(previous_key) and previous.get("html_sha256") == sha:
         return (
             {
                 "html_bucket": previous.get("html_bucket"),
@@ -138,6 +143,32 @@ def _record_parse_entry(
         )
 
 
+def _save_failure_page(
+    uid: str, exc: BaseException, fetched_at: datetime
+) -> tuple[dict | None, int | None]:
+    """Положить в S3 страницу, на которой упали. Возвращает (данные снапшота, HTTP-статус).
+
+    Снимок приходит приложенным к исключению клиента суда (CourtError.page): живой браузер
+    есть только внутри клиента, здесь его уже нет. Если снимка нет (упало до открытия
+    страницы или снять не удалось) — сохранять нечего.
+
+    Ошибку S3 глотаем: архив разметки не важнее самой причины отказа, ради записи которой
+    мы сюда и пришли.
+    """
+    page = getattr(exc, "page", None)
+    if page is None:
+        return None, None
+    if not HTML_SNAPSHOT_ENABLED:
+        return None, page.status
+    try:
+        return save_snapshot(uid, page.html, fetched_at, failed=True), page.status
+    except Exception as storage_exc:
+        logger.warning(
+            "Не удалось сохранить страницу отказа дела %s в S3: %s", uid, storage_exc
+        )
+        return None, page.status
+
+
 def _record_error(task_id: int, error: str, page_status=None) -> None:
     """Записать ошибку в задачу, не меняя статус (попытки ещё могут остаться)."""
     with session_scope() as session:
@@ -148,18 +179,39 @@ def _record_error(task_id: int, error: str, page_status=None) -> None:
                 task.page_status = page_status
 
 
-def _mark_failed(task_id: int, error: str) -> None:
+def _mark_failed(task_id: int, error: str, page_status: int | None = None) -> None:
     """Пометить задачу окончательно проваленной."""
     with session_scope() as session:
         repo = SearchTaskRepository(session)
         task = repo.get(task_id)
         if task is not None:
-            repo.mark_failed(task, error)
+            repo.mark_failed(task, error, page_status=page_status)
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=30)
 def sync_case(self, task_id: int) -> None:
-    """Обработать задачу поиска: найти дело по УИД и сохранить Case."""
+    """Обработать задачу поиска: найти дело по УИД и сохранить Case.
+
+    Тело — в _sync_case; здесь только страховка на непредвиденную ошибку. Без неё любое
+    исключение, не перечисленное в _sync_case (IntegrityError на коммите дела, недоступная
+    БД внутри записи истории), оставляло бы задачу в RUNNING навсегда: терминальный статус
+    ставится только явными вызовами, и никто её потом не подберёт. Хуже того, RUNNING
+    считается активным статусом (SearchTaskRepository.get_active_by_uid), поэтому такая
+    задача навсегда блокирует повторный запрос этого УИД через API.
+    """
+    try:
+        _sync_case(self, task_id)
+    except Retry:
+        # Штатный ретрай (self.retry бросает Retry — наследника Exception): задача вернётся,
+        # статус RUNNING сохраняется осознанно. Без этой ветки каждый ретрай уходил бы в FAILED.
+        raise
+    except Exception as exc:
+        _mark_failed(task_id, f"Непредвиденная ошибка: {exc}")
+        raise  # пробрасываем дальше, чтобы трейс остался в логах воркера
+
+
+def _sync_case(celery_task, task_id: int) -> None:
+    """Тело задачи синхронизации. celery_task — сам таск (нужен для retry)."""
     # 1. Помечаем задачу «в работе» (короткая транзакция) и берём УИД.
     with session_scope() as session:
         repo = SearchTaskRepository(session)
@@ -177,19 +229,29 @@ def sync_case(self, task_id: int) -> None:
         fetched_at = datetime.utcnow()
     except (UnsupportedCourt, CaseNotFound) as exc:
         # Окончательные ошибки — повторять бессмысленно.
-        _record_parse_entry(uid, STATUS_FETCH_ERROR, fetched_at, task_id, error=str(exc))
-        _mark_failed(task_id, str(exc))
+        snapshot, page_status = _save_failure_page(uid, exc, fetched_at)
+        _record_parse_entry(
+            uid, STATUS_FETCH_ERROR, fetched_at, task_id, snapshot=snapshot, error=str(exc)
+        )
+        _mark_failed(task_id, str(exc), page_status=page_status)
         return
     except Exception as exc:
         # Временная ошибка (403/timeout/сеть): записать и повторить, пока есть попытки.
         # Запись в историю делаем на каждой попытке — так видно, сколько раз суд не открылся.
-        _record_parse_entry(uid, STATUS_FETCH_ERROR, fetched_at, task_id, error=str(exc))
-        _record_error(task_id, str(exc))
-        try:
-            raise self.retry(exc=exc, countdown=30)
-        except self.MaxRetriesExceededError:
-            _mark_failed(task_id, f"Исчерпаны попытки: {exc}")
+        snapshot, page_status = _save_failure_page(uid, exc, fetched_at)
+        _record_parse_entry(
+            uid, STATUS_FETCH_ERROR, fetched_at, task_id, snapshot=snapshot, error=str(exc)
+        )
+        # Счётчик попыток проверяем САМИ, до вызова retry: если в retry(exc=...) передан exc,
+        # то при исчерпании попыток Celery пробрасывает именно его, а не MaxRetriesExceededError
+        # (celery/app/task.py: `if max_retries is not None and retries > max_retries` →
+        # `raise_with_context(exc)`). Ловить MaxRetriesExceededError здесь бесполезно — эта
+        # ветка не срабатывала, и задача оставалась в RUNNING с исчерпанными попытками.
+        if celery_task.request.retries >= celery_task.max_retries:
+            _mark_failed(task_id, f"Исчерпаны попытки: {exc}", page_status=page_status)
             return
+        _record_error(task_id, str(exc), page_status=page_status)
+        raise celery_task.retry(exc=exc, countdown=30)
 
     # 2a. Снапшот HTML — до разбора, чтобы разметка сохранилась даже если парсер упадёт.
     snapshot, html_unchanged = _take_snapshot(uid, html, fetched_at)

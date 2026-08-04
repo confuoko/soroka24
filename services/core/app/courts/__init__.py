@@ -3,7 +3,9 @@ from app.courts.base import (
     CaseNotFound,
     CourtClient,
     CourtError,
+    FetchFailed,
     NewCourtException,
+    PageSnapshot,
     UnsupportedCourt,
 )
 from app.courts.resolver import define_court_by_uid
@@ -14,5 +16,7 @@ __all__ = [
     "CourtError",
     "UnsupportedCourt",
     "CaseNotFound",
+    "FetchFailed",
     "NewCourtException",
+    "PageSnapshot",
 ]

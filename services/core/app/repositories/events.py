@@ -56,6 +56,11 @@ class EventRepository:
             uid = event_uid(
                 case.uid, item["event_date"], item["state_description"]
             )
+            # Портал может отдать две одинаковые строки (та же дата, то же состояние) —
+            # считаем их одним событием. Обработать второе нельзя: uid у него тот же, и
+            # UNIQUE ix_event_uid уронит commit вместе со всей транзакцией дела.
+            if uid in desired_uids:
+                continue
             # Добавляем событие в список собтий, которые мы хотим увидеть  в БД
             desired_uids.add(uid)
             # пытаемся найти uid среди уже существующих

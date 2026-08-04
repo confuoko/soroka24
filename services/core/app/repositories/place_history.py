@@ -59,6 +59,12 @@ class PlaceHistoryRepository:
             uid = place_history_uid(
                 case.uid, item["place_date"], item["place_description"]
             )
+            # Портал иногда отдаёт две побайтово одинаковые строки (та же дата, то же
+            # местонахождение, пустой комментарий) — считаем их одной записью. Обработать
+            # вторую нельзя: uid у неё тот же, и UNIQUE ix_place_history_uid уронит commit
+            # вместе со всей транзакцией дела.
+            if uid in desired_uids:
+                continue
             # Добавляем uid в список строк, которые мы хотим увидеть в БД
             desired_uids.add(uid)
             # пытаемся найти uid среди уже существующих
