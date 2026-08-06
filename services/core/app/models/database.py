@@ -10,6 +10,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -442,6 +443,48 @@ class CourtSession(Base):
     )
 
     case: Mapped["Case"] = relationship(back_populates="court_sessions")
+
+
+class Proxy(Base):
+    """Прокси, через который браузер ходит на портал суда.
+
+    Пул живёт в БД, а не в переменных окружения: список меняется часто (прокси
+    покупаются и протухают), и править его хочется через админку, не передеплоивая
+    воркеры. Перед каждым походом за делом берётся один прокси — самый давно не
+    использованный (см. ProxyRepository.lease).
+    """
+
+    __tablename__ = "proxy"
+
+    # host+port — естественный ключ: дважды один и тот же прокси не заводим.
+    __table_args__ = (UniqueConstraint("host", "port", name="uq_proxy_host_port"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # http или socks5. Внимание: Chromium не умеет socks5 с логином/паролем,
+    # поэтому socks5 годится только без учётных данных.
+    scheme: Mapped[str] = mapped_column(String(16), default="http")
+    host: Mapped[str] = mapped_column(String(255))
+    port: Mapped[int] = mapped_column()
+    # Учётные данные прокси (у большинства платных они есть).
+    username: Mapped[str | None] = mapped_column(String(255))
+    password: Mapped[str | None] = mapped_column(String(255))
+    # Ручной выключатель: выключенный прокси не попадает в выдачу пула.
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), index=True
+    )
+    # Заметка для человека: провайдер, до какого числа оплачен и т.п.
+    comment: Mapped[str | None] = mapped_column(String(255))
+    # Когда прокси последний раз выдавался из пула — по этому полю идёт ротация.
+    # NULL = им ещё не ходили, такой берём первым.
+    last_used_at: Mapped[datetime | None] = mapped_column(index=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now()
+    )
+
+    def __str__(self) -> str:
+        # Пароль наружу не отдаём: этот текст уходит в логи и в списки админки.
+        return f"{self.scheme}://{self.host}:{self.port}"
 
 
 class SearchTask(Base):
