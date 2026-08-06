@@ -86,6 +86,39 @@ def test_lease_returns_none_on_empty_pool(session) -> None:
     assert ProxyRepository(session).lease() is None
 
 
+# --------------------------------------------------- переключение пачкой из админки
+def test_set_enabled_switches_selected(session) -> None:
+    """Кнопки «Включить»/«Выключить» в списке админки меняют только отмеченные строки."""
+    repo = ProxyRepository(session)
+    first = _make(session, "10.0.0.1", enabled=False)
+    second = _make(session, "10.0.0.2", enabled=False)
+    untouched = _make(session, "10.0.0.3", enabled=False)
+
+    changed = repo.set_enabled([first.id, second.id], True)
+    session.expire_all()
+
+    assert changed == 2
+    assert session.get(Proxy, first.id).enabled is True
+    assert session.get(Proxy, second.id).enabled is True
+    assert session.get(Proxy, untouched.id).enabled is False
+
+
+def test_set_enabled_can_switch_off(session) -> None:
+    """Выключенный прокси выпадает из ротации — это и есть ручной выключатель."""
+    repo = ProxyRepository(session)
+    proxy = _make(session, "10.0.0.1", enabled=True)
+
+    repo.set_enabled([proxy.id], False)
+    session.expire_all()
+
+    assert repo.lease() is None
+
+
+def test_set_enabled_ignores_empty_selection(session) -> None:
+    """Нажали кнопку, ничего не отметив — просто ничего не происходит, без ошибки."""
+    assert ProxyRepository(session).set_enabled([], True) == 0
+
+
 # ------------------------------------------- запрет ходить на портал мимо прокси
 def test_lease_proxy_raises_when_required(monkeypatch) -> None:
     """Пул пуст при COURT_PROXY_REQUIRED=1 → ProxyUnavailable, браузер не запускается.

@@ -36,9 +36,19 @@ class _StubPage:
 class _StubSession:
     """Мини-подмена ChromiumSession: только то, что использует клиент суда."""
 
-    def __init__(self, fail_on: str | None = None, status: int = 200, link_count: int = 1) -> None:
+    def __init__(
+        self,
+        fail_on: str | None = None,
+        status: int = 200,
+        link_count: int = 1,
+        results_status: int | None = None,
+        card_status: int | None = 200,
+    ) -> None:
         self.fail_on = fail_on
         self.status = status
+        # Статусы отдельных шагов: страница поиска -> выдача -> карточка дела.
+        self.results_status = results_status
+        self.card_status = card_status
         self.page = _StubPage("https://mos-sud.ru/search", link_count)
 
     def __enter__(self) -> "_StubSession":
@@ -54,11 +64,11 @@ class _StubSession:
         if self.fail_on == "fill":
             raise TimeoutError('Page.fill: Timeout 30000ms exceeded.')
 
-    def submit_and_wait(self, selector: str, timeout: int | None = None) -> None:
-        return None
+    def submit_and_wait(self, selector: str, timeout: int | None = None) -> int | None:
+        return self.results_status
 
-    def open_in_new_tab(self, locator, timeout: int | None = None) -> str:
-        return CARD_HTML
+    def open_in_new_tab(self, locator, timeout: int | None = None) -> tuple[str, int | None]:
+        return CARD_HTML, self.card_status
 
     def content(self) -> str:
         return CAPTCHA_HTML
@@ -85,8 +95,11 @@ def test_fetch_failure_carries_page_snapshot(stub_browser) -> None:
 
     Ровно тот отказ, что был у задач 6 и 7: goto прошёл, а input[name="uid"] не появился.
     Раньше наружу уходил голый Page.fill: Timeout, и понять, что отдал портал, было нельзя.
+
+    Статус здесь 200: портал ответил как ни в чём не бывало, а разметка оказалась не та.
+    Явные коды ошибок (403/429/5xx) отсекаются раньше — см. тесты ниже.
     """
-    stub_browser(fail_on="fill", status=403)
+    stub_browser(fail_on="fill", status=200)
 
     with pytest.raises(FetchFailed) as caught:
         moscow_mir_court.MoscowMirCourtClient().fetch_case_html(CASE_UID)
@@ -94,7 +107,7 @@ def test_fetch_failure_carries_page_snapshot(stub_browser) -> None:
     page = caught.value.page
     assert page.html == CAPTCHA_HTML
     assert page.url == "https://mos-sud.ru/search"
-    assert page.status == 403
+    assert page.status == 200
     assert isinstance(caught.value.reason, TimeoutError)
 
 
@@ -113,6 +126,54 @@ def test_successful_fetch_returns_card_and_raises_nothing(stub_browser) -> None:
     stub_browser()
 
     assert moscow_mir_court.MoscowMirCourtClient().fetch_case_html(CASE_UID) == CARD_HTML
+
+
+# ------------------------------------------- ошибка портала должна быть ретраибельной
+@pytest.mark.parametrize("status", [500, 502, 503, 403, 429])
+def test_search_page_error_fails_fast(stub_browser, status) -> None:
+    """Портал ответил ошибкой → падаем сразу, не дожидаясь таймаута на поле формы.
+
+    Заглушка настроена так, что fill вообще упал бы по таймауту; раз до него не дошло,
+    значит статус проверен раньше. Для Playwright 500 — успешная навигация, поэтому
+    без явной проверки здесь сгорало бы 30 секунд на каждой попытке.
+    """
+    stub_browser(fail_on="fill", status=status)
+
+    with pytest.raises(FetchFailed) as caught:
+        moscow_mir_court.MoscowMirCourtClient().fetch_case_html(CASE_UID)
+
+    assert caught.value.page.status == status
+    assert not isinstance(caught.value.reason, TimeoutError)
+    assert str(status) in str(caught.value.reason)
+
+
+def test_results_page_error_is_not_mistaken_for_case_not_found(stub_browser) -> None:
+    """500 на выдаче — это отказ портала, а не «дело не найдено».
+
+    Ссылок на странице ошибки тоже ноль, поэтому без проверки статуса временный сбой
+    выглядел бы как CaseNotFound — окончательный отказ, который никто не повторит.
+    """
+    stub_browser(status=200, results_status=500, link_count=0)
+
+    with pytest.raises(FetchFailed) as caught:
+        moscow_mir_court.MoscowMirCourtClient().fetch_case_html(CASE_UID)
+
+    assert caught.value.page.status == 500
+
+
+def test_card_page_error_does_not_reach_parser(stub_browser) -> None:
+    """500 на самой карточке → FetchFailed, а не «успешно забрали HTML».
+
+    Раньше страница ошибки уезжала в парсер, тот падал, и задача помечалась
+    проваленной окончательно — ретрая не было вовсе, хотя причина временная.
+    """
+    stub_browser(card_status=503)
+
+    with pytest.raises(FetchFailed) as caught:
+        moscow_mir_court.MoscowMirCourtClient().fetch_case_html(CASE_UID)
+
+    assert caught.value.page.status == 503
+    assert caught.value.page.html == CARD_HTML
 
 
 # ------------------------------------------------------ куда кладём страницу отказа
