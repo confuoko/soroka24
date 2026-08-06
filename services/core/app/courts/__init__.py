@@ -8,10 +8,12 @@ from app.courts.base import (
     PageSnapshot,
     UnsupportedCourt,
 )
+from app.courts.moscow_region_court import MoscowRegionCourtClient
 from app.courts.resolver import define_court_by_uid
 
 __all__ = [
     "define_court_by_uid",
+    "MoscowRegionCourtClient",
     "CourtClient",
     "CourtError",
     "UnsupportedCourt",

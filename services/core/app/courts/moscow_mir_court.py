@@ -11,6 +11,9 @@ from app.courts.base import (
     CourtError,
     FetchFailed,
     PageSnapshot,
+    capture_page,
+    check_status,
+    is_retryable_status,
 )
 from app.parsers.registry import get_parser
 
@@ -22,18 +25,6 @@ UID_INPUT = 'input[name="uid"]'                # поле «Уникальный
 SEARCH_BUTTON = "#case-index-search-form-btn"   # кнопка «Найти»
 # Ссылка на карточку дела: из detailsLink берём те, что ведут на /details/.
 DETAIL_LINK = 'table.custom_table tbody a.detailsLink[href*="/details/"]'
-
-
-def _capture(session: ChromiumSession, status: int | None) -> PageSnapshot | None:
-    """Снять страницу для разбора отказа. Само снятие не должно ронять ничего сверху.
-
-    Браузер в момент отказа может быть уже нездоров (упал контекст, повисла вкладка),
-    поэтому любую ошибку снятия глотаем: исходная причина отказа важнее снимка.
-    """
-    try:
-        return PageSnapshot(html=session.content(), url=session.page.url, status=status)
-    except Exception:
-        return None
 
 
 class MoscowMirCourtClient(CourtClient):
@@ -62,20 +53,35 @@ class MoscowMirCourtClient(CourtClient):
                 # 1. Открываем страницу поиска (Chromium исполнит JS и получит cookie).
                 response = session.goto(SEARCH_URL)
                 status = response.status if response is not None else None
+                check_status(session, uid, status, "Страница поиска")
                 # 2. Вводим УИД и запускаем поиск.
                 session.fill(UID_INPUT, uid)
-                session.submit_and_wait(SEARCH_BUTTON)
+                results_status = session.submit_and_wait(SEARCH_BUTTON)
+                if results_status is not None:
+                    status = results_status
+                # Проверяем ДО подсчёта ссылок: на странице ошибки их тоже ноль, и без
+                # проверки временный отказ портала выглядел бы как «дело не найдено» —
+                # то есть окончательный отказ, который никто не повторит.
+                check_status(session, uid, status, "Страница результатов")
                 # 3. Берём первую ссылку на карточку дела.
                 links = session.page.locator(DETAIL_LINK)
                 if links.count() == 0:
-                    raise CaseNotFound(uid, page=_capture(session, status))
+                    raise CaseNotFound(uid, page=capture_page(session, status))
                 # 4. Открываем карточку кликом (в новой вкладке) и забираем её HTML.
-                return session.open_in_new_tab(links.first)
+                html, card_status = session.open_in_new_tab(links.first)
+                if is_retryable_status(card_status):
+                    # Вкладка уже закрыта, поэтому снимок собираем из того, что забрали.
+                    raise FetchFailed(
+                        uid,
+                        RuntimeError(f"Карточка дела ответила HTTP {card_status}"),
+                        page=PageSnapshot(html=html, status=card_status),
+                    )
+                return html
             except CourtError:
                 # Наши ошибки снимок уже несут (или он не нужен) — пробрасываем как есть.
                 raise
             except Exception as exc:
-                raise FetchFailed(uid, exc, page=_capture(session, status)) from exc
+                raise FetchFailed(uid, exc, page=capture_page(session, status)) from exc
 
     def parse(self, html: str) -> dict:
         """Разбор HTML карточки в данные дела — делегируем парсеру по типу страницы."""

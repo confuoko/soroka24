@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models.database import Proxy
@@ -50,6 +50,20 @@ class ProxyRepository:
                 select(Proxy).where(Proxy.enabled.is_(True)).order_by(Proxy.id)
             )
         )
+
+    def set_enabled(self, proxy_ids: list[int], enabled: bool) -> int:
+        """Включить или выключить прокси пачкой. Возвращает число изменённых строк.
+
+        Нужно кнопкам в списке админки: включать и выключать прокси приходится часто
+        (один портал пускает одни адреса, другой — другие), и открывать ради галки
+        карточку каждого прокси неудобно.
+        """
+        if not proxy_ids:
+            return 0
+        result = self._session.execute(
+            update(Proxy).where(Proxy.id.in_(proxy_ids)).values(enabled=enabled)
+        )
+        return result.rowcount
 
     def get_by_host_port(self, host: str, port: int) -> Optional[Proxy]:
         """Прокси по паре host+port (естественный ключ) — или None."""

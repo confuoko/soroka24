@@ -6,6 +6,8 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from app.browser import ChromiumSession
+
 
 @dataclass(frozen=True)
 class PageSnapshot:
@@ -58,6 +60,50 @@ class FetchFailed(CourtError):
 
 class NewCourtException(CourtError):
     """Суд с карточки ещё не заведён в БД (нужно добавить справочник суда)."""
+
+
+# Статусы, при которых повторить попытку осмысленно: портал лёг (5xx), нас притормозили
+# (429) или отсекли по IP (403). Проверять их приходится вручную: для Playwright любой
+# ответ сервера — успешная навигация, исключение он бросает только на сетевых отказах.
+# Без явной проверки страница ошибки молча уезжала бы в парсер, а тот падал бы с
+# неретраибельной ошибкой разбора — то есть временный сбой хоронил бы задачу навсегда.
+RETRYABLE_STATUSES = frozenset({403, 429})
+
+
+def capture_page(session: ChromiumSession, status: int | None) -> PageSnapshot | None:
+    """Снять страницу для разбора отказа. Само снятие не должно ронять ничего сверху.
+
+    Браузер в момент отказа может быть уже нездоров (упал контекст, повисла вкладка),
+    поэтому любую ошибку снятия глотаем: исходная причина отказа важнее снимка.
+    """
+    try:
+        return PageSnapshot(html=session.content(), url=session.page.url, status=status)
+    except Exception:
+        return None
+
+
+def is_retryable_status(status: int | None) -> bool:
+    """Портал ответил так, что имеет смысл прийти ещё раз (и с другого прокси)?"""
+    return status is not None and (status >= 500 or status in RETRYABLE_STATUSES)
+
+
+def check_status(
+    session: ChromiumSession, uid: str, status: int | None, where: str
+) -> None:
+    """Упасть сразу, если портал ответил ошибкой, — не дожидаясь таймаута.
+
+    Иначе клиент искал бы элементы на странице ошибки все 30 секунд, а в тексте отказа
+    оставался бы бесполезный «Page.fill: Timeout» вместо честного кода ответа.
+
+    Снимок снимаем только при отказе: карточка дела весит под полмегабайта, и дёргать
+    page.content() на каждой удачной навигации незачем.
+    """
+    if is_retryable_status(status):
+        raise FetchFailed(
+            uid,
+            RuntimeError(f"{where} ответила HTTP {status}"),
+            page=capture_page(session, status),
+        )
 
 
 class CourtClient(ABC):

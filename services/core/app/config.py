@@ -46,6 +46,25 @@ HTML_SNAPSHOT_PREFIX = os.getenv("HTML_SNAPSHOT_PREFIX", "html_snapshots")
 # Выключатель на случай, если снапшоты не нужны (тесты, отладка).
 HTML_SNAPSHOT_ENABLED = os.getenv("HTML_SNAPSHOT_ENABLED", "1") not in ("0", "false", "False")
 
+# --- Распознавание капчи (rucaptcha.com) --------------------------------------
+
+# Ключ личного кабинета. Пусто — капчу разгадывать нечем, клиент честно падает.
+RUCAPTCHA_API_KEY = os.getenv("RUCAPTCHA_API_KEY", "")
+
+# Префикс ключей в бакете для картинок капчи: captcha/<хост>/<case_id>/<время>.png
+CAPTCHA_PREFIX = os.getenv("CAPTCHA_PREFIX", "captcha")
+
+# Сколько раз подряд пытаться пройти проверку: портал умеет показать вторую капчу
+# сразу после верно разгаданной первой.
+CAPTCHA_ATTEMPTS = int(os.getenv("CAPTCHA_ATTEMPTS", "3"))
+
+# Сколько ждать разгадку одной картинки (секунды): её решает живой человек.
+CAPTCHA_TIMEOUT = int(os.getenv("CAPTCHA_TIMEOUT", "120"))
+
+# Пул исполнителей у сервиса: "rn" — русскоязычный, "en" — по умолчанию латиница.
+# На порталах судов капча КИРИЛЛИЧЕСКАЯ, и с латинским пулом ответы приходят неверные.
+CAPTCHA_LANGUAGE_POOL = os.getenv("CAPTCHA_LANGUAGE_POOL", "rn")
+
 # --- Прокси для походов браузера на портал суда -------------------------------
 
 # Сам пул живёт в таблице proxy (правится через админку) — здесь только жёсткий

@@ -26,7 +26,8 @@ from app.storage.s3 import get_object, put_object
 
 # Формат времени в имени объекта: сортируемый и без двоеточий, чтобы файл можно было
 # без переименования сохранить на диск (в Windows двоеточие в имени запрещено).
-_TS_FORMAT = "%Y-%m-%dT%H-%M-%SZ"
+# Общий для всех объектов в бакете — им же именуются картинки капчи.
+TS_FORMAT = "%Y-%m-%dT%H-%M-%SZ"
 
 # Подпапка внутри папки дела для страниц, на которых упали.
 FAILURE_SUBDIR = "failed"
@@ -43,7 +44,7 @@ def snapshot_key(uid: str, fetched_at: datetime, failed: bool = False) -> str:
     failed=True — страница, на которой парсинг упал: кладём в подпапку failed/.
     """
     folder = f"{uid}/{FAILURE_SUBDIR}" if failed else uid
-    return f"{HTML_SNAPSHOT_PREFIX}/{folder}/{uid}_{fetched_at.strftime(_TS_FORMAT)}.html.gz"
+    return f"{HTML_SNAPSHOT_PREFIX}/{folder}/{uid}_{fetched_at.strftime(TS_FORMAT)}.html.gz"
 
 
 def is_failure_key(key: str) -> bool:

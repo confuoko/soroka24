@@ -1,4 +1,5 @@
-# Хранилища данных, которые не помещаются в БД (снапшоты HTML в S3).
+# Хранилища данных, которые не помещаются в БД (снапшоты HTML и картинки капчи в S3).
+from app.storage.captcha_images import captcha_key, save_captcha
 from app.storage.html_snapshots import (
     is_failure_key,
     read_snapshot,
@@ -14,6 +15,8 @@ __all__ = [
     "snapshot_key",
     "snapshot_sha256",
     "is_failure_key",
+    "save_captcha",
+    "captcha_key",
     "put_object",
     "get_object",
     "list_keys",

@@ -11,6 +11,7 @@ from sqlalchemy import Date, DateTime
 from sqlalchemy import inspect as sa_inspect
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
+from wtforms import BooleanField
 
 from app.config import ADMIN_PASSWORD, ADMIN_SECRET_KEY, ADMIN_USERNAME
 from app.courts.tasks import sync_courts_from_json
@@ -28,8 +29,10 @@ from app.models.database import (
     SearchTask,
     Side,
     engine,
+    session_scope,
 )
 from app.monitoring.tasks import enqueue_case_resync
+from app.repositories import ProxyRepository
 
 
 def _format_no_ms(value):
@@ -244,6 +247,54 @@ class ProxyAdmin(ModelView, model=Proxy):
     # Пароль не показываем ни в списке, ни в карточке — а в форме он есть,
     # иначе прокси с авторизацией не завести.
     column_details_exclude_list = [Proxy.password]
+
+    # Обходим несовместимость библиотек: BooleanInputWidget из sqladmin 0.28 наследует
+    # wtforms.widgets.Input, но не объявляет validation_attrs, а в WTForms 3.2 этот
+    # атрибут убрали с базового класса — и форма падает с AttributeError на любом
+    # булевом поле. Подставляем штатный BooleanField: у его CheckboxInput нужный
+    # атрибут есть. Выглядит как обычная галка вместо стилизованного переключателя.
+    # Появится ещё одна булева колонка в другой модели — ей понадобится то же самое.
+    form_overrides = {"enabled": BooleanField}
+
+    # Свой конвертер булевых полей sqladmin ставит галке класс form-check-input, но
+    # form_overrides его обходит, и поле попадает в общую ветку с form-control —
+    # с ним чекбокс растягивается в пустой прямоугольник вместо галки. Возвращаем
+    # нужный класс руками.
+    form_widget_args = {"enabled": {"class": "form-check-input"}}
+
+    @action(
+        name="enable_proxies",
+        label="Включить",
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def enable_proxies(self, request: Request) -> RedirectResponse:
+        """Вернуть выбранные прокси в ротацию прямо из списка."""
+        return self._switch(request, enabled=True)
+
+    @action(
+        name="disable_proxies",
+        label="Выключить",
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def disable_proxies(self, request: Request) -> RedirectResponse:
+        """Убрать выбранные прокси из ротации прямо из списка."""
+        return self._switch(request, enabled=False)
+
+    def _switch(self, request: Request, enabled: bool) -> RedirectResponse:
+        """Переключить галку у отмеченных строк и вернуться к списку.
+
+        Кнопки в списке — основной способ управлять пулом: какой прокси доходит до
+        какого портала, выясняется опытным путём, и переключать их приходится часто.
+        """
+        pks = [int(pk) for pk in request.query_params.get("pks", "").split(",") if pk]
+        with session_scope() as session:
+            ProxyRepository(session).set_enabled(pks, enabled)
+
+        return RedirectResponse(
+            request.url_for("admin:list", identity=self.identity), status_code=302
+        )
 
 
 def setup_admin(app) -> Admin:
