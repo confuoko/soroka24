@@ -6,6 +6,7 @@ from app.repositories.documents import DocumentRepository
 from app.repositories.events import EventRepository
 from app.repositories.judges import JudgeRepository
 from app.repositories.place_history import PlaceHistoryRepository
+from app.repositories.proxies import ProxyRepository
 from app.repositories.search_tasks import SearchTaskRepository
 from app.repositories.sides import SideRepository
 
@@ -18,6 +19,7 @@ __all__ = [
     "EventRepository",
     "JudgeRepository",
     "PlaceHistoryRepository",
+    "ProxyRepository",
     "SearchTaskRepository",
     "SideRepository",
 ]

@@ -70,7 +70,10 @@ def stub_browser(monkeypatch):
 
     def _install(**kwargs) -> _StubSession:
         stub = _StubSession(**kwargs)
-        monkeypatch.setattr(moscow_mir_court, "ChromiumSession", lambda headless=True: stub)
+        # proxy клиент суда передаёт всегда (в тесте — None): подпись должна его принять.
+        monkeypatch.setattr(
+            moscow_mir_court, "ChromiumSession", lambda headless=True, proxy=None: stub
+        )
         return stub
 
     return _install
@@ -164,7 +167,11 @@ def test_failure_page_goes_to_failed_subfolder(task_id, recorded_uploads, monkey
         page=PageSnapshot(html=CAPTCHA_HTML, url="https://mos-sud.ru/search", status=403),
     )
     monkeypatch.setattr(
-        tasks, "define_court_by_uid", lambda uid: SimpleNamespace(fetch_case_html=lambda _: (_ for _ in ()).throw(failure))
+        tasks,
+        "define_court_by_uid",
+        lambda uid, proxy=None: SimpleNamespace(
+            fetch_case_html=lambda _: (_ for _ in ()).throw(failure)
+        ),
     )
 
     tasks._sync_case(_StubTask(retries=_StubTask.max_retries), task_id)
@@ -184,7 +191,7 @@ def test_failure_page_goes_to_failed_subfolder(task_id, recorded_uploads, monkey
 def test_nothing_saved_when_error_has_no_page(task_id, recorded_uploads, monkeypatch) -> None:
     """Упали до открытия страницы — сохранять нечего, хранилище не засоряем."""
 
-    def _boom(uid: str):
+    def _boom(uid: str, proxy=None):
         raise TimeoutError("сеть недоступна")
 
     monkeypatch.setattr(tasks, "define_court_by_uid", _boom)

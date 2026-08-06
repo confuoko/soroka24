@@ -24,6 +24,7 @@ from app.models.database import (
     Instance,
     Judge,
     PlaceHistory,
+    Proxy,
     SearchTask,
     Side,
     engine,
@@ -221,6 +222,30 @@ class SearchTaskAdmin(ModelView, model=SearchTask):
     column_list = [SearchTask.id, SearchTask.uid, SearchTask.status, SearchTask.attempts, SearchTask.case_id]
 
 
+class ProxyAdmin(ModelView, model=Proxy):
+    """Пул прокси, через которые браузер ходит на портал суда.
+
+    Это штатное место, чтобы завести новый прокси или выключить протухший: снятая
+    галка enabled сразу убирает прокси из ротации, передеплой не нужен.
+    """
+
+    name = "Прокси"
+    name_plural = "Прокси"
+    column_list = [
+        Proxy.id,
+        Proxy.scheme,
+        Proxy.host,
+        Proxy.port,
+        Proxy.enabled,
+        Proxy.last_used_at,
+        Proxy.comment,
+    ]
+    column_searchable_list = [Proxy.host, Proxy.comment]
+    # Пароль не показываем ни в списке, ни в карточке — а в форме он есть,
+    # иначе прокси с авторизацией не завести.
+    column_details_exclude_list = [Proxy.password]
+
+
 def setup_admin(app) -> Admin:
     """Создать админку, повесить её на app (/admin) и зарегистрировать все модели."""
     # Авторизация по логину/паролю; secret_key нужен для cookie-сессии.
@@ -240,6 +265,7 @@ def setup_admin(app) -> Admin:
         CourtSessionAdmin,
         CaseLinkAdmin,
         SearchTaskAdmin,
+        ProxyAdmin,
     ):
         # Все поля-даты/время показываем без миллисекунд (в списке и в карточке).
         view.column_formatters = _no_ms_formatters(view.model)

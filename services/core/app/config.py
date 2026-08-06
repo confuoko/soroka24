@@ -46,6 +46,13 @@ HTML_SNAPSHOT_PREFIX = os.getenv("HTML_SNAPSHOT_PREFIX", "html_snapshots")
 # Выключатель на случай, если снапшоты не нужны (тесты, отладка).
 HTML_SNAPSHOT_ENABLED = os.getenv("HTML_SNAPSHOT_ENABLED", "1") not in ("0", "false", "False")
 
+# --- Прокси для походов браузера на портал суда -------------------------------
+
+# Сам пул живёт в таблице proxy (правится через админку) — здесь только жёсткий
+# запрет ходить мимо него: с пустым пулом задача падает и браузер не запускается.
+# Это защита от похода на портал не с того IP. В российском облаке можно 0.
+COURT_PROXY_REQUIRED = os.getenv("COURT_PROXY_REQUIRED", "1") not in ("0", "false", "False")
+
 # Сколько последних записей хранить в Case.diff_history: поле JSONB перезаписывается
 # целиком при каждом апдейте, поэтому расти без предела ему нельзя.
 DIFF_HISTORY_LIMIT = int(os.getenv("DIFF_HISTORY_LIMIT", "200"))

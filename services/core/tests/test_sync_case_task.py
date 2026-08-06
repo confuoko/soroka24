@@ -52,7 +52,7 @@ def task_id():
 def court_is_down(monkeypatch):
     """Портал не открывается: любой поход за страницей падает по таймауту."""
 
-    def _boom(uid: str):
+    def _boom(uid: str, proxy=None):
         raise TimeoutError('Page.fill: Timeout 30000ms exceeded.')
 
     monkeypatch.setattr(tasks, "define_court_by_uid", _boom)

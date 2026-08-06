@@ -11,6 +11,17 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.models.database import engine
+from app.monitoring import tasks
+
+
+@pytest.fixture(autouse=True)
+def no_proxy(monkeypatch):
+    """Отвязать задачу sync_case от пула прокси: считаем, что идём напрямую.
+
+    Без этого любой тест задачи падал бы на ProxyUnavailable (в тестовой БД пул пуст,
+    а COURT_PROXY_REQUIRED=1). Сам пул проверяется отдельно, в test_proxy_pool.py.
+    """
+    monkeypatch.setattr(tasks, "lease_proxy", lambda: None)
 
 
 @pytest.fixture

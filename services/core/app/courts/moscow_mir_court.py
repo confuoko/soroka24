@@ -4,7 +4,7 @@
 «Найти», берёт ссылку на карточку дела (с /details/) и открывает её.
 Метод parse() пока заглушка — разбор HTML напишем позже (в app/parsers/).
 """
-from app.browser import ChromiumSession
+from app.browser import ChromiumSession, ProxySettings
 from app.courts.base import (
     CaseNotFound,
     CourtClient,
@@ -41,8 +41,12 @@ class MoscowMirCourtClient(CourtClient):
 
     page_type = "A"
 
-    def __init__(self, headless: bool = True) -> None:
+    def __init__(
+        self, headless: bool = True, proxy: ProxySettings | None = None
+    ) -> None:
         self._headless = headless
+        # Прокси, арендованный из пула на этот поход (None — идём напрямую).
+        self._proxy = proxy
 
     def fetch_case_html(self, uid: str) -> str:
         """Найти дело по УИД на mos-sud.ru и вернуть HTML карточки дела.
@@ -52,7 +56,7 @@ class MoscowMirCourtClient(CourtClient):
         не будет). Без него отказ выглядит как голый «Page.fill: Timeout» — по нему не
         отличить капчу от блокировки и от поехавшей разметки.
         """
-        with ChromiumSession(headless=self._headless) as session:
+        with ChromiumSession(headless=self._headless, proxy=self._proxy) as session:
             status = None
             try:
                 # 1. Открываем страницу поиска (Chromium исполнит JS и получит cookie).

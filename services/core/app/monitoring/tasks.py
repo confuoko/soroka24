@@ -16,6 +16,7 @@ from datetime import datetime
 from celery.exceptions import Retry
 from celery.utils.log import get_task_logger
 
+from app.browser import lease_proxy
 from app.celery_app import celery_app
 from app.config import HTML_SNAPSHOT_ENABLED
 from app.courts import (
@@ -241,7 +242,12 @@ def _sync_case(celery_task, task_id: int) -> None:
     # 2. Долгая часть без БД: сходить браузером в суд за HTML карточки.
     fetched_at = datetime.utcnow()
     try:
-        client = define_court_by_uid(uid)
+        # Прокси арендуем внутри try: если пул пуст при COURT_PROXY_REQUIRED=1,
+        # ProxyUnavailable уйдёт в ветку временных ошибок ниже — задача поретраится,
+        # а браузер даже не запустится (на портал не с того IP ходить нельзя).
+        proxy = lease_proxy()
+        logger.info("Дело %s: идём через прокси %s", uid, proxy or "напрямую")
+        client = define_court_by_uid(uid, proxy=proxy)
         html = client.fetch_case_html(uid)
         fetched_at = datetime.utcnow()
     except (UnsupportedCourt, CaseNotFound) as exc:
