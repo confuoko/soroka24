@@ -21,6 +21,7 @@ from app.models.database import (
     Court,
     CourtSession,
     Document,
+    CaseUrl,
     Event,
     Instance,
     Judge,
@@ -90,7 +91,8 @@ class CaseAdmin(ModelView, model=Case):
 
     name = "Дело"
     name_plural = "Дела"
-    column_list = [Case.id, Case.uid, Case.application_number, Case.status, Case.created_at]
+    # Суд в списке: карточка — это пара «УИД + суд», по одному УИД строк может быть несколько.
+    column_list = [Case.id, Case.uid, Case.court, Case.application_number, Case.status, Case.created_at]
     # Историю парсингов (diff_history) SQLAdmin покажет в карточке дела сам —
     # column_details_list по умолчанию включает все колонки модели.
 
@@ -115,6 +117,19 @@ class CaseAdmin(ModelView, model=Case):
             enqueue_case_resync(int(pk))
 
         return RedirectResponse(request.url_for("admin:list", identity=self.identity), status_code=302)
+
+
+class CaseUrlAdmin(ModelView, model=CaseUrl):
+    """Адреса карточек дел.
+
+    Полезно, когда портал переехал: старую ссылку видно, новую можно добавить руками,
+    не дожидаясь, пока её кто-нибудь пришлёт.
+    """
+
+    name = "Ссылка на дело"
+    name_plural = "Ссылки на дела"
+    column_list = [CaseUrl.id, CaseUrl.case_id, CaseUrl.url, CaseUrl.last_success_at]
+    column_searchable_list = [CaseUrl.url]
 
 
 class CourtAdmin(ModelView, model=Court):
@@ -314,6 +329,7 @@ def setup_admin(app) -> Admin:
         InstanceAdmin,
         DocumentAdmin,
         CourtSessionAdmin,
+        CaseUrlAdmin,
         CaseLinkAdmin,
         SearchTaskAdmin,
         ProxyAdmin,

@@ -3,10 +3,21 @@
 Клиент суда знает, КАК добраться до карточки дела по УИД (навигация в браузере)
 и КАК её разобрать. Под каждый тип суда/страницы — свой класс-наследник.
 """
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from app.browser import ChromiumSession
+
+# УИД дела в тексте страницы: 50MS0095-01-2026-002990-16. Формат общероссийский,
+# поэтому поиск один на все порталы.
+UID_RE = re.compile(r"\b\d{2}[A-Z]{2}\d{4}-\d{2}-\d{4}-\d{6}-\d{2}\b")
+
+
+def find_uid(html: str) -> str | None:
+    """Найти УИД дела в разметке страницы (или None, если его там нет)."""
+    found = UID_RE.search(html)
+    return found.group(0) if found else None
 
 
 @dataclass(frozen=True)
@@ -112,15 +123,40 @@ class CourtClient(ABC):
     page_type — тип страницы (по нему выбирается парсер в app/parsers/).
 
     Конструктор наследника обязан принимать именованный аргумент proxy
-    (ProxySettings | None) — его передаёт define_court_by_uid, арендовав прокси из
-    пула. На портал суда клиент должен ходить только через него.
+    (ProxySettings | None) — его передаёт резолвер, арендовав прокси из пула. На
+    портал суда клиент должен ходить только через него.
+
+    Входов в карточку два, и у разных порталов работает разный:
+
+    * fetch_case_html_by_uid — у портала есть поиск по УИД (так устроена Москва);
+    * fetch_case_html_by_url — поиска нет, зато карточка открывается по прямой
+      ссылке (так устроены msudrf.ru и большинство региональных порталов).
+
+    Реализовать нужно только тот, который портал поддерживает: у второго остаётся
+    отказ по умолчанию.
     """
 
     page_type: str
 
-    @abstractmethod
-    def fetch_case_html(self, uid: str) -> str:
+    def fetch_case_html_by_uid(self, uid: str) -> str:
         """Найти дело по УИД и вернуть HTML его карточки."""
+        raise UnsupportedCourt(f"{type(self).__name__} не умеет искать дело по УИД")
+
+    def fetch_case_html_by_url(self, url: str) -> str:
+        """Открыть карточку дела по прямой ссылке и вернуть её HTML."""
+        raise UnsupportedCourt(f"{type(self).__name__} не умеет открывать дело по ссылке")
+
+    def extract_uid(self, html: str) -> str:
+        """Достать УИД дела со страницы: по нему резолвится суд (uid[:8] — его код).
+
+        Нужен там, где дело пришло ссылкой и УИД заранее неизвестен.
+        """
+        uid = find_uid(html)
+        if uid is None:
+            # Страница открылась, но это не карточка: дело сняли с публикации или
+            # поехала разметка. Повторять бессмысленно — отказ окончательный.
+            raise CaseNotFound("На странице нет уникального идентификатора дела")
+        return uid
 
     @abstractmethod
     def parse(self, html: str) -> dict:

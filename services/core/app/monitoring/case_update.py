@@ -103,10 +103,15 @@ def update_case(
     Предполагается, что суд уже найден в справочнике (резолвится до вызова).
     Работает в рамках переданной сессии; коммит — на вызывающей стороне.
     """
-    # 1. Дело: создать/обновить поля и идемпотентно привязать суд.
-    case, field_changes = CaseRepository(session).upsert_by_uid(uid, data)
-    if court not in case.courts:
-        case.courts.append(court)
+    # 1. Карточка: найти по паре «УИД + суд» или создать, обновить поля.
+    cases = CaseRepository(session)
+    case, field_changes = cases.upsert_by_uid_and_court(uid, court, data)
+    # Адрес карточки — в список адресов, а не в поле дела: их у карточки несколько.
+    # Сюда он приходит либо от парсера, либо от задачи, которую завели ссылкой.
+    # Раз мы дошли до разбора, значит по этому адресу страница открылась — отмечаем.
+    if data.get("url"):
+        cases.add_url(case, data["url"])
+        cases.mark_url_success(data["url"])
 
     # 2. Судьи — полная сверка со страницей.
     desired_judges = JudgeRepository(session).get_or_create_many(

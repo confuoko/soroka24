@@ -17,6 +17,12 @@ from app.monitoring import tasks
 from app.repositories import SearchTaskRepository
 
 CASE_UID = "77MS0002-01-2026-000003-33"
+CASE_URL = (
+    "https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs"
+    "&case_id=429386415&delo_id=1540005"
+)
+# УИД, который «найдётся» на странице, открытой по ссылке.
+URL_CASE_UID = "50MS0095-01-2026-002990-16"
 
 
 class _StubTask:
@@ -38,6 +44,21 @@ def task_id():
     """Реальная строка search_task в PENDING; после теста удаляется."""
     with session_scope() as session:
         created = SearchTaskRepository(session).create(CASE_UID)
+        created_id = created.id
+
+    yield created_id
+
+    with session_scope() as session:
+        row = session.get(SearchTask, created_id)
+        if row is not None:
+            session.delete(row)
+
+
+@pytest.fixture
+def url_task_id():
+    """Задача, заведённая ССЫЛКОЙ: УИД у неё пока пуст, как и бывает в жизни."""
+    with session_scope() as session:
+        created = SearchTaskRepository(session).create(source_url=CASE_URL)
         created_id = created.id
 
     yield created_id
@@ -131,3 +152,61 @@ def test_retry_is_not_swallowed_by_the_guard(task_id, monkeypatch) -> None:
 
     status, _, _ = _status(task_id)
     assert status is SearchStatus.PENDING  # статус не тронут: фикстура создала PENDING
+
+
+# ------------------------------------------------------ дело, заведённое по ссылке
+def test_url_task_discovers_uid_and_saves_link(url_task_id, monkeypatch) -> None:
+    """Задача по ссылке: открыли страницу, нашли УИД, записали его и ссылку в дело.
+
+    Это главное отличие второго входа: УИД не приходит извне, а добывается со
+    страницы, и только после этого работает привычная привязка суда по uid[:8].
+    """
+    recorded = {}
+
+    class _Client:
+        page_type = "B"
+
+        def fetch_case_html_by_url(self, url):
+            recorded["fetched"] = url
+            return "<html>карточка</html>"
+
+        def extract_uid(self, html):
+            return URL_CASE_UID
+
+        def parse(self, html):
+            return {"code": "1-234/2026"}
+
+    monkeypatch.setattr(
+        tasks, "define_court_by_url", lambda url, proxy=None: _Client()
+    )
+    # По УИД такое дело не ищется — если задача полезет этим путём, тест это поймает.
+    monkeypatch.setattr(
+        tasks,
+        "define_court_by_uid",
+        lambda uid, proxy=None: pytest.fail("по ссылке искать по УИД не должны"),
+    )
+    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: (None, False))
+    captured = {}
+
+    def _update_case(session, uid, data, court):
+        captured["uid"] = uid
+        captured["data"] = data
+        raise tasks.NewCourtException("суд в тесте не заводим")
+
+    monkeypatch.setattr(tasks, "update_case", _update_case)
+    monkeypatch.setattr(
+        tasks,
+        "CourtRepository",
+        lambda session: SimpleNamespace(get_by_code=lambda c: SimpleNamespace(id=1)),
+    )
+
+    tasks._sync_case(_StubTask(retries=0), url_task_id)
+
+    assert recorded["fetched"] == CASE_URL
+    assert captured["uid"] == URL_CASE_UID
+    # Ссылку кладём в дело: по ней его будут открывать при каждом следующем обходе.
+    assert captured["data"]["url"] == CASE_URL
+
+    # УИД дописан в задачу сразу после похода — виден в статусе, даже если разбор упал.
+    with session_scope() as session:
+        assert session.get(SearchTask, url_task_id).uid == URL_CASE_UID

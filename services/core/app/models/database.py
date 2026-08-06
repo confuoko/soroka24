@@ -11,6 +11,7 @@ from datetime import date, datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -90,15 +91,9 @@ class CourtLevel(str, enum.Enum):
 
 
 # --- Связующие таблицы many-to-many ------------------------------------------
-# Таблицы-связки нужны для связи «многие-ко-многим»: у дела много судов/судей/сторон, а каждый из них — во многих делах.
+# Таблицы-связки нужны для связи «многие-ко-многим»: у дела много судей/сторон, а каждый из них — во многих делах.
 # ondelete="CASCADE" на обоих концах => удаление любого конца стирает только строку-связь, дело и справочник живут.
-
-case_court = Table(
-    "case_court",
-    Base.metadata,
-    Column("case_id", ForeignKey("case.id", ondelete="CASCADE"), primary_key=True),
-    Column("court_id", ForeignKey("court.id", ondelete="CASCADE"), primary_key=True),
-)
+# Суда в этом списке нет: у карточки он ровно один и хранится обычным внешним ключом.
 
 case_judge = Table(
     "case_judge",
@@ -119,16 +114,32 @@ case_side = Table(
 
 
 class Case(Base):
-    """Судебное дело — центральная сущность: его парсим, мониторим."""
+    """Карточка дела в конкретном суде — центральная сущность: её парсим и мониторим.
+
+    Единица учёта — не «дело вообще», а его КАРТОЧКА: пара «УИД + суд». Причина в том,
+    что УИД сквозной и не меняется, когда дело идёт по инстанциям, поэтому один и тот же
+    УИД встречается на странице участка мирового судьи и на странице районного суда —
+    это разные карточки с разным содержимым.
+
+    Ссылок на одну карточку может вести несколько (http/https, другой порядок параметров,
+    сменившийся адрес) — они лежат в CaseUrl.
+    """
 
     __tablename__ = "case"
 
+    # Карточка — это пара «УИД + суд». Один УИД в одном суде встречается ровно раз;
+    # тот же УИД в другом суде — уже другая карточка (другая инстанция).
+    __table_args__ = (UniqueConstraint("uid", "court_id", name="uq_case_uid_court"),)
+
     # Порядковый уникальный номер записи (первичный ключ).
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    # УИД дела с сайта суда (например, 77MS0466-01-2026-003751-93) — уникальный бизнес-ключ.
-    uid: Mapped[str] = mapped_column(String, unique=True, index=True)
-    # Ссылка на дело на сайте суда; уникальна, но может отсутствовать (у части дел ссылки нет).
-    url: Mapped[str | None] = mapped_column(String, unique=True, index=True)
+    # УИД дела с сайта суда (например, 77MS0466-01-2026-003751-93). Сам по себе НЕ
+    # уникален — уникальна пара с судом (см. __table_args__).
+    uid: Mapped[str] = mapped_column(String, index=True)
+    # Суд, которому принадлежит карточка. Обязателен: карточки без суда не бывает.
+    # ondelete намеренно не задан: суд из справочника не удаляют, а если удалят —
+    # пусть операция упадёт, чем карточка молча останется без суда.
+    court_id: Mapped[int] = mapped_column(ForeignKey("court.id"), index=True)
     # Код дела: необязательный, может повторяться у разных дел (потому без unique).
     code: Mapped[str | None] = mapped_column(String)
     # Номер заявления (необязательный).
@@ -178,8 +189,10 @@ class Case(Base):
         ForeignKey("case_link.id", ondelete="SET NULL"), index=True
     )
 
+    # Суд карточки — ровно один (в отличие от судей и сторон).
+    court: Mapped["Court"] = relationship()
+
     # Справочники many-to-many: у дела их может быть несколько.
-    courts: Mapped[list["Court"]] = relationship(secondary=case_court)
     judges: Mapped[list["Judge"]] = relationship(secondary=case_judge)
     sides: Mapped[list["Side"]] = relationship(secondary=case_side)
 
@@ -187,6 +200,9 @@ class Case(Base):
     case_link: Mapped["CaseLink | None"] = relationship(back_populates="cases")
 
     # Дочерние записи: удаляются вместе с делом (CASCADE + очистка «сирот»).
+    urls: Mapped[list["CaseUrl"]] = relationship(
+        back_populates="case", cascade="all, delete-orphan", passive_deletes=True
+    )
     events: Mapped[list["Event"]] = relationship(
         back_populates="case", cascade="all, delete-orphan", passive_deletes=True
     )
@@ -214,6 +230,42 @@ class Case(Base):
     def related_case_ids(self) -> list[int]:
         """id других дел из той же группы — в таком виде их отдаёт API."""
         return [c.id for c in self.related_cases]
+
+
+class CaseUrl(Base):
+    """Адрес, по которому открывается карточка дела; удаляется вместе с карточкой.
+
+    Почему отдельная таблица, а не поле у дела: на одну и ту же карточку ведёт несколько
+    адресов — http и https, другой порядок параметров, сменившийся после переезда участка
+    адрес. Пока ссылка была полем, каждая новая перезаписывала предыдущую, старая
+    переставала находиться, и по ней заводилась лишняя задача с походом через капчу.
+
+    url уникален ГЛОБАЛЬНО, а не в пределах дела: весь смысл таблицы в том, чтобы по
+    присланному адресу сразу понять, какая это карточка.
+    """
+
+    __tablename__ = "case_url"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Карточка-владелец; при удалении карточки ссылка удаляется (CASCADE).
+    case_id: Mapped[int] = mapped_column(
+        ForeignKey("case.id", ondelete="CASCADE"), index=True
+    )
+    # Адрес в канонической форме (см. canonical_case_url в app/validators.py).
+    url: Mapped[str] = mapped_column(String, unique=True, index=True)
+    # Когда по этому адресу последний раз удалось получить страницу. По нему выбираем,
+    # какой ссылкой ходить при повторном обходе: рабочая важнее просто известной.
+    last_success_at: Mapped[datetime | None] = mapped_column()
+    # created_at заодно отвечает на вопрос «когда эту ссылку впервые увидели».
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now()
+    )
+
+    case: Mapped["Case"] = relationship(back_populates="urls")
+
+    def __str__(self) -> str:
+        return self.url
 
 
 class CaseLink(Base):
@@ -488,13 +540,34 @@ class Proxy(Base):
 
 
 class SearchTask(Base):
-    """Задача поиска/синхронизации дела по УИД: статус, попытки, результат."""
+    """Задача поиска/синхронизации дела: статус, попытки, результат.
+
+    У задачи ровно один вход из двух:
+
+    * uid — так приходят дела мировых судов Москвы: на портале есть поиск по УИД;
+    * source_url — так приходят дела остальных порталов (msudrf.ru и прочие): поиска
+      по УИД там нет, зато карточка доступна по прямой ссылке.
+
+    Во втором случае УИД на момент создания задачи НЕИЗВЕСТЕН — за ним надо сходить в
+    портал, а это 25-35 секунд с капчей и прокси. Поэтому эндпоинт задачу только
+    создаёт, а uid дописывается уже в задаче, когда страница получена.
+    """
 
     __tablename__ = "search_task"
 
+    # Задача без обоих входов бессмысленна: по ней нельзя ни найти дело, ни открыть его.
+    __table_args__ = (
+        CheckConstraint(
+            "uid IS NOT NULL OR source_url IS NOT NULL", name="ck_search_task_uid_or_url"
+        ),
+    )
+
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     # Искомый УИД (не unique — по одному делу может быть несколько синхронизаций).
-    uid: Mapped[str] = mapped_column(String, index=True)
+    # Пусто, пока задачу завели по ссылке и до портала ещё не дошли.
+    uid: Mapped[str | None] = mapped_column(String, index=True)
+    # Прямая ссылка на карточку дела, если дело пришло ссылкой, а не УИД.
+    source_url: Mapped[str | None] = mapped_column(String, index=True)
     # Текущий статус задачи.
     status: Mapped[SearchStatus] = mapped_column(
         Enum(SearchStatus), default=SearchStatus.PENDING

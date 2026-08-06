@@ -24,6 +24,7 @@ from app.courts import (
     NewCourtException,
     UnsupportedCourt,
     define_court_by_uid,
+    define_court_by_url,
 )
 from app.models.database import Case, session_scope
 from app.monitoring.case_update import CaseChanges, update_case
@@ -38,7 +39,7 @@ from app.monitoring.parse_history import (
     last_entry,
 )
 from app.repositories import CaseRepository, CourtRepository, SearchTaskRepository
-from app.storage import is_failure_key, save_snapshot, snapshot_sha256
+from app.storage import is_failure_key, save_snapshot, snapshot_sha256, url_label
 
 logger = get_task_logger(__name__)
 
@@ -87,7 +88,9 @@ def _log_changes(uid: str, changes: CaseChanges) -> None:
         logger.info("Отвязана сторона: %s (%s) от дела %s", side.full_name, side.type.value, uid)
 
 
-def _take_snapshot(uid: str, html: str, fetched_at: datetime) -> tuple[dict | None, bool]:
+def _take_snapshot(
+    uid: str, html: str, fetched_at: datetime, court_id: int | None = None
+) -> tuple[dict | None, bool]:
     """Положить HTML страницы в S3. Возвращает (данные снапшота, html_unchanged).
 
     Если разметка побайтово совпала с прошлым разом (тот же sha256), новый объект не
@@ -102,10 +105,13 @@ def _take_snapshot(uid: str, html: str, fetched_at: datetime) -> tuple[dict | No
 
     sha = snapshot_sha256(html)
 
-    # Короткое чтение: чем закончился предыдущий парсинг этого дела.
-    with session_scope() as session:
-        case = CaseRepository(session).get_by_uid(uid)
-        previous = last_entry(case) if case is not None else None
+    # Короткое чтение: чем закончился предыдущий парсинг этой карточки. Карточка —
+    # это пара «УИД + суд», поэтому без суда искать нечего (его ещё не определили).
+    previous = None
+    if court_id is not None:
+        with session_scope() as session:
+            case = CaseRepository(session).get_by_uid_and_court(uid, court_id)
+            previous = last_entry(case) if case is not None else None
 
     # Ключ переиспользуем только от УСПЕШНОГО парсинга: в последней записи истории теперь
     # может лежать ключ страницы отказа (капча/блокировка), и подставлять его карточке
@@ -137,14 +143,20 @@ def _record_parse_entry(
     snapshot: dict | None = None,
     error: str | None = None,
     html_unchanged: bool = False,
+    court_id: int | None = None,
 ) -> None:
     """Дозаписать в историю дела запись о неудачном парсинге (если дело уже есть в БД).
 
     Если дела в БД ещё нет (первый парсинг провалился), дозаписывать некуда — такой
     провал остаётся в SearchTask (last_error/status).
     """
+    if court_id is None:
+        # Суд ещё не определён, значит и карточки в БД быть не может.
+        logger.info("Суд дела %s не определён — запись истории парсинга пропущена", uid)
+        return
+
     with session_scope() as session:
-        case = CaseRepository(session).get_by_uid(uid)
+        case = CaseRepository(session).get_by_uid_and_court(uid, court_id)
         if case is None:
             logger.info("Дело %s ещё не создано — запись истории парсинга пропущена", uid)
             return
@@ -185,6 +197,33 @@ def _save_failure_page(
             "Не удалось сохранить страницу отказа дела %s в S3: %s", uid, storage_exc
         )
         return None, page.status
+
+
+def _court_id_for(uid: str | None) -> int | None:
+    """id суда по коду из УИД (первые 8 символов) — или None, если суда нет.
+
+    Карточка — это пара «УИД + суд», поэтому почти всё, что пишется по делу, требует
+    суда: и поиск прошлого снапшота, и запись в историю парсинга.
+    """
+    if not uid:
+        return None
+    with session_scope() as session:
+        court = CourtRepository(session).get_by_code(uid[:8])
+        return court.id if court is not None else None
+
+
+def _record_uid(task_id: int, uid: str) -> None:
+    """Записать в задачу УИД, найденный на странице дела.
+
+    Задача, заведённая по ссылке, создаётся без УИД — узнать его можно только сходив
+    на портал. Сохраняем сразу, чтобы он был виден в статусе задачи и в админке даже
+    если разбор дальше упадёт.
+    """
+    with session_scope() as session:
+        repo = SearchTaskRepository(session)
+        task = repo.get(task_id)
+        if task is not None:
+            repo.set_uid(task, uid)
 
 
 def _record_error(task_id: int, error: str, page_status=None) -> None:
@@ -230,7 +269,7 @@ def sync_case(self, task_id: int) -> None:
 
 def _sync_case(celery_task, task_id: int) -> None:
     """Тело задачи синхронизации. celery_task — сам таск (нужен для retry)."""
-    # 1. Помечаем задачу «в работе» (короткая транзакция) и берём УИД.
+    # 1. Помечаем задачу «в работе» (короткая транзакция) и берём, с чем работать.
     with session_scope() as session:
         repo = SearchTaskRepository(session)
         task = repo.get(task_id)
@@ -238,6 +277,11 @@ def _sync_case(celery_task, task_id: int) -> None:
             return  # задача удалена — делать нечего
         repo.mark_running(task)
         uid = task.uid
+        source_url = task.source_url
+
+    # Под каким именем класть страницы в S3. Пока дело пришло ссылкой и УИД неизвестен,
+    # имени из УИД нет — берём его из адреса, иначе страницу отказа некуда положить.
+    label = uid or url_label(source_url)
 
     # 2. Долгая часть без БД: сходить браузером в суд за HTML карточки.
     fetched_at = datetime.utcnow()
@@ -246,24 +290,38 @@ def _sync_case(celery_task, task_id: int) -> None:
         # ProxyUnavailable уйдёт в ветку временных ошибок ниже — задача поретраится,
         # а браузер даже не запустится (на портал не с того IP ходить нельзя).
         proxy = lease_proxy()
-        logger.info("Дело %s: идём через прокси %s", uid, proxy or "напрямую")
-        client = define_court_by_uid(uid, proxy=proxy)
-        html = client.fetch_case_html(uid)
+        if source_url:
+            # Портал без поиска по УИД: карточка открывается прямой ссылкой, а УИД
+            # мы узнаём уже из неё. Ссылка — постоянный адрес дела, поэтому и первый
+            # разбор, и каждый повторный обход идут этим же путём.
+            logger.info("Дело по ссылке %s: идём через прокси %s", source_url, proxy or "напрямую")
+            client = define_court_by_url(source_url, proxy=proxy)
+            html = client.fetch_case_html_by_url(source_url)
+            uid = client.extract_uid(html)
+            label = uid
+            _record_uid(task_id, uid)
+            logger.info("По ссылке %s найдено дело %s", source_url, uid)
+        else:
+            logger.info("Дело %s: идём через прокси %s", uid, proxy or "напрямую")
+            client = define_court_by_uid(uid, proxy=proxy)
+            html = client.fetch_case_html_by_uid(uid)
         fetched_at = datetime.utcnow()
     except (UnsupportedCourt, CaseNotFound) as exc:
         # Окончательные ошибки — повторять бессмысленно.
-        snapshot, page_status = _save_failure_page(uid, exc, fetched_at)
+        snapshot, page_status = _save_failure_page(label, exc, fetched_at)
         _record_parse_entry(
-            uid, STATUS_FETCH_ERROR, fetched_at, task_id, snapshot=snapshot, error=str(exc)
+            label, STATUS_FETCH_ERROR, fetched_at, task_id, snapshot=snapshot,
+            error=str(exc), court_id=_court_id_for(uid),
         )
         _mark_failed(task_id, str(exc), page_status=page_status)
         return
     except Exception as exc:
         # Временная ошибка (403/timeout/сеть): записать и повторить, пока есть попытки.
         # Запись в историю делаем на каждой попытке — так видно, сколько раз суд не открылся.
-        snapshot, page_status = _save_failure_page(uid, exc, fetched_at)
+        snapshot, page_status = _save_failure_page(label, exc, fetched_at)
         _record_parse_entry(
-            uid, STATUS_FETCH_ERROR, fetched_at, task_id, snapshot=snapshot, error=str(exc)
+            label, STATUS_FETCH_ERROR, fetched_at, task_id, snapshot=snapshot,
+            error=str(exc), court_id=_court_id_for(uid),
         )
         # Счётчик попыток проверяем САМИ, до вызова retry: если в retry(exc=...) передан exc,
         # то при исчерпании попыток Celery пробрасывает именно его, а не MaxRetriesExceededError
@@ -276,10 +334,19 @@ def _sync_case(celery_task, task_id: int) -> None:
         _record_error(task_id, str(exc), page_status=page_status)
         raise celery_task.retry(exc=exc, countdown=30)
 
-    # 2a. Снапшот HTML — до разбора, чтобы разметка сохранилась даже если парсер упадёт.
-    snapshot, html_unchanged = _take_snapshot(uid, html, fetched_at)
+    # 2a. Суд определяем ДО снапшота: карточка — это пара «УИД + суд», и без суда
+    #     нельзя ни найти её в БД, ни записать историю парсинга. Заодно неизвестный суд
+    #     обнаруживается сразу, а не после лишней работы.
+    #     Код суда — первые 8 символов УИД (например, 77MS0001).
+    court_id = _court_id_for(uid)
+    if court_id is None:
+        _mark_failed(task_id, f"Новый суд, требуется завести справочник: {uid[:8]}")
+        return
 
-    # 2b. Разбор карточки. Ошибка разбора не временная (сломалась разметка или тип
+    # 2b. Снапшот HTML — до разбора, чтобы разметка сохранилась даже если парсер упадёт.
+    snapshot, html_unchanged = _take_snapshot(uid, html, fetched_at, court_id=court_id)
+
+    # 2c. Разбор карточки. Ошибка разбора не временная (сломалась разметка или тип
     #     страницы неизвестен) — ретраить нечего, помечаем задачу проваленной.
     try:
         data = client.parse(html)  # состав словаря — в CaseParser.parse
@@ -287,19 +354,22 @@ def _sync_case(celery_task, task_id: int) -> None:
         _record_parse_entry(
             uid, STATUS_PARSE_ERROR, fetched_at, task_id,
             snapshot=snapshot, error=str(exc), html_unchanged=html_unchanged,
+            court_id=court_id,
         )
         _mark_failed(task_id, f"Не удалось разобрать страницу: {exc}")
         return
 
-    # 3. Успех: привязать суд и создать/обновить Case со сверкой судей/сторон/событий.
-    #    Суд резолвим ПЕРВЫМ: если его нет в БД — NewCourtException, транзакция
-    #    откатывается и Case НЕ создаётся (заводить дело без суда не хотим).
+    # 3. Успех: создать/обновить карточку со сверкой судей/сторон/событий.
     try:
         with session_scope() as session:
-            # Код суда для мировых судов Москвы — первые 8 символов УИД (напр. 77MS0001).
             court = CourtRepository(session).get_by_code(uid[:8])
             if court is None:
                 raise NewCourtException(uid[:8])
+
+            # Ссылку, которой завели дело, передаём в разбор: она ляжет в список адресов
+            # карточки, и по ней её будут открывать при каждом следующем обходе.
+            if source_url:
+                data["url"] = source_url
 
             changes = update_case(session, uid, data, court)
             case_id = changes.case.id
@@ -332,10 +402,12 @@ def _sync_case(celery_task, task_id: int) -> None:
 def enqueue_case_resync(case_id: int, queue: str = "regular") -> int | None:
     """Поставить дело на повторный парсинг по его id в БД.
 
-    sync_case принимает id ЗАДАЧИ, а не дела, поэтому задачу надо сначала создать по
-    УИД дела — этим и занимается функция. Возвращает id созданной задачи (по нему
-    можно следить через GET /search_case/tasks/{task_id}) или None, если дела с таким
-    id нет.
+    sync_case принимает id ЗАДАЧИ, а не дела, поэтому задачу надо сначала создать —
+    этим и занимается функция. Возвращает id созданной задачи (по нему можно следить
+    через GET /search_case/tasks/{task_id}) или None, если дела с таким id нет.
+
+    Задачу заводим тем же способом, каким дело попало в систему: есть сохранённая
+    ссылка — идём по ней (у таких порталов поиска по УИД нет), иначе по УИД.
 
     Дедупликации по активным задачам здесь намеренно нет: задача, воркер которой умер
     жёстко, навсегда остаётся в статусе RUNNING, и такая проверка заблокировала бы
@@ -349,7 +421,11 @@ def enqueue_case_resync(case_id: int, queue: str = "regular") -> int | None:
         if case is None:
             logger.info("Дело id=%s не найдено — повторный парсинг не запущен", case_id)
             return None
-        task_id = SearchTaskRepository(session).create(case.uid).id
+        source_url = CaseRepository(session).primary_url(case)
+        if source_url:
+            task_id = SearchTaskRepository(session).create(source_url=source_url).id
+        else:
+            task_id = SearchTaskRepository(session).create(uid=case.uid).id
 
     # apply_async только ПОСЛЕ коммита: иначе воркер может схватить задачу раньше,
     # чем строка появится в БД (тот же порядок, что в app/api/routes.py).

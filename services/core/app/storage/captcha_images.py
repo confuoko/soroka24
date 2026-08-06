@@ -10,13 +10,12 @@
 момент УИД ещё неизвестен — за ним мы, собственно, и шли. Хост с номером участка и
 case_id из ссылки однозначно указывают на дело и доступны сразу.
 """
-import hashlib
 import logging
 from datetime import datetime
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 from app.config import CAPTCHA_PREFIX, S3_BUCKET
-from app.storage.html_snapshots import TS_FORMAT
+from app.storage.html_snapshots import TS_FORMAT, case_id_from_url
 from app.storage.s3 import put_object
 
 logger = logging.getLogger(__name__)
@@ -29,12 +28,8 @@ def _case_folder(source_url: str) -> str:
     вида) — подставляем короткий хэш адреса. Так объект всё равно ляжет предсказуемо
     и не смешается с чужими.
     """
-    parts = urlsplit(source_url)
-    host = parts.hostname or "unknown-host"
-    case_id = parse_qs(parts.query).get("case_id", [None])[0]
-    if not case_id:
-        case_id = "url-" + hashlib.sha256(source_url.encode("utf-8")).hexdigest()[:12]
-    return f"{host}/{case_id}"
+    host = urlsplit(source_url).hostname or "unknown-host"
+    return f"{host}/{case_id_from_url(source_url)}"
 
 
 def captcha_key(source_url: str, taken_at: datetime) -> str:

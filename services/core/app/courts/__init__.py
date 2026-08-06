@@ -1,4 +1,5 @@
-# Определение суда по УИД и клиенты судов (как достать и разобрать карточку дела).
+# Определение суда (по УИД или по ссылке) и клиенты судов: как достать и разобрать
+# карточку дела.
 from app.courts.base import (
     CaseNotFound,
     CourtClient,
@@ -7,13 +8,22 @@ from app.courts.base import (
     NewCourtException,
     PageSnapshot,
     UnsupportedCourt,
+    find_uid,
 )
-from app.courts.moscow_region_court import MoscowRegionCourtClient
-from app.courts.resolver import define_court_by_uid
+from app.courts.moscow_mir_court import MoscowMirCourtClient
+from app.courts.msudrf_court import MsudrfCourtClient
+from app.courts.resolver import (
+    define_court_by_uid,
+    define_court_by_url,
+    is_supported_url,
+)
 
 __all__ = [
     "define_court_by_uid",
-    "MoscowRegionCourtClient",
+    "define_court_by_url",
+    "is_supported_url",
+    "MoscowMirCourtClient",
+    "MsudrfCourtClient",
     "CourtClient",
     "CourtError",
     "UnsupportedCourt",
@@ -21,4 +31,5 @@ __all__ = [
     "FetchFailed",
     "NewCourtException",
     "PageSnapshot",
+    "find_uid",
 ]

@@ -1,14 +1,20 @@
-"""Клиент мировых судов Московской области (порталы *.mo.msudrf.ru), страница типа B.
+"""Клиент порталов мировых судов на движке msudrf.ru, страница типа B.
 
-Чем отличается от Москвы. Там пользователь даёт УИД, и клиент сам ищет дело формой
-поиска. Здесь на вход приходит ПРЯМАЯ ССЫЛКА на карточку, например
+Один класс на все такие порталы, а не на регион: движок общий для 6063 судов из 72
+регионов (78% мировых судов страны) — разметка, капча и адреса карточек у них
+одинаковые, различаются только поддомены. Московская область (50MS) — просто первый
+регион, который через него пошёл. Появится регион с другой разметкой — тогда и
+разделим; заводить пустые классы-наследники заранее незачем.
+
+Чем отличается от Москвы. Там пользователь даёт УИД, и клиент ищет дело формой поиска
+на mos-sud.ru. Здесь поиска по УИД нет: на вход приходит ПРЯМАЯ ССЫЛКА на карточку,
+например
 https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=429386415&delo_id=1540005
-а УИД мы, наоборот, извлекаем из полученной страницы (extract_uid) — и уже по нему
-привязываем суд. Выводить суд из ссылки нельзя: поддомен — это номер судебного участка
-из названия, и с номером в коде суда он совпадает не всегда (у 50MS0392 участок № 235,
-то есть 235.mo.msudrf.ru), а в справочнике вдобавок есть битые адреса.
+а УИД, наоборот, извлекается из полученной страницы — и уже по нему привязывается суд.
+Выводить суд из ссылки нельзя: поддомен — это номер судебного участка, и с номером в
+коде суда он совпадает не всегда (у 50MS0392 участок № 235, то есть 235.mo.msudrf.ru).
 
-Две особенности портала, из-за которых клиент выглядит именно так:
+Две особенности движка, из-за которых клиент выглядит именно так:
 
 * Сертификат поддоменов не совпадает с именем — без ignore_https_errors Chromium
   вообще не открывает страницу (ERR_CERT_COMMON_NAME_INVALID).
@@ -20,14 +26,12 @@ https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=429386415&delo_i
 Метод parse() делегирует парсеру типа B — его ещё предстоит написать.
 """
 import logging
-import re
 from datetime import datetime
 
 from app.browser import ChromiumSession, ProxySettings
 from app.captcha import solve_image
 from app.config import CAPTCHA_ATTEMPTS
 from app.courts.base import (
-    CaseNotFound,
     CourtClient,
     CourtError,
     FetchFailed,
@@ -39,6 +43,16 @@ from app.storage import save_captcha
 
 logger = logging.getLogger(__name__)
 
+# Домен движка: по нему резолвер понимает, что ссылку обслуживает этот клиент.
+DOMAIN = "msudrf.ru"
+
+# Как выглядит адрес карточки дела. Показываем пользователю, когда его дело по УИД
+# не ищется: у всех порталов движка адрес одинаковый, меняется только поддомен.
+CASE_URL_EXAMPLE = (
+    "https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs"
+    "&case_id=429386415&delo_id=1540005"
+)
+
 # Признак страницы проверки. Ищем по заголовку, а не по слову «captcha»: оно есть и в
 # коде обычных страниц портала.
 CAPTCHA_MARK = "Для продолжения необходимо пройти дополнительную проверку"
@@ -49,12 +63,9 @@ CAPTCHA_IMAGE = "#kcaptchaForm img"
 CAPTCHA_INPUT = 'input[name="captcha-response"]'
 CAPTCHA_SUBMIT = "#kcaptchaForm button[type='submit']"
 
-# УИД дела: 50MS0095-01-2026-002990-16.
-UID_RE = re.compile(r"\b\d{2}[A-Z]{2}\d{4}-\d{2}-\d{4}-\d{6}-\d{2}\b")
 
-
-class MoscowRegionCourtClient(CourtClient):
-    """Клиент мировых судов Московской области. Страницы считаем типом B."""
+class MsudrfCourtClient(CourtClient):
+    """Клиент порталов на движке msudrf.ru. Страницы считаем типом B."""
 
     page_type = "B"
 
@@ -67,11 +78,12 @@ class MoscowRegionCourtClient(CourtClient):
         # Сколько капч пришлось разгадать за последний поход — для отчёта скрипта.
         self.captchas_solved = 0
 
-    def fetch_case_html(self, url: str) -> str:
+    def fetch_case_html_by_url(self, url: str) -> str:
         """Пройти по ссылке на карточку дела и вернуть её HTML.
 
-        На вход именно ссылка, а не УИД: у портала области нет поиска по УИД, зато
-        карточка доступна по прямому адресу.
+        Ссылка — постоянный адрес дела: по ней ходим и в первый раз, и при каждом
+        повторном обходе. Отдельной ветки «взять сохранённую страницу из S3» нет —
+        свежая разметка нужна ровно затем, чтобы увидеть изменения.
         """
         self.captchas_solved = 0
         with ChromiumSession(
@@ -82,9 +94,7 @@ class MoscowRegionCourtClient(CourtClient):
                 response = session.goto(url)
                 status = response.status if response is not None else None
                 check_status(session, url, status, "Страница дела")
-
-                html = self._pass_captcha(session, url, status)
-                return html
+                return self._pass_captcha(session, url, status)
             except CourtError:
                 # Наши ошибки снимок уже несут (или он не нужен) — пробрасываем как есть.
                 raise
@@ -131,18 +141,6 @@ class MoscowRegionCourtClient(CourtClient):
         answer, task_id = solve_image(png)
         logger.debug("Капча разгадана (задача %s): %r", task_id, answer)
         return answer
-
-    def extract_uid(self, html: str) -> str:
-        """Достать УИД дела со страницы карточки.
-
-        По нему потом резолвится суд (первые 8 символов — его код в справочнике).
-        """
-        found = UID_RE.search(html)
-        if found is None:
-            # Страница есть, но это не карточка: дело сняли с публикации или поехала
-            # разметка. Повторять бессмысленно — отказ окончательный.
-            raise CaseNotFound("На странице нет уникального идентификатора дела")
-        return found.group(0)
 
     def parse(self, html: str) -> dict:
         """Разбор HTML карточки в данные дела — делегируем парсеру по типу страницы."""

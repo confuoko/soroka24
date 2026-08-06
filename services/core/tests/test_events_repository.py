@@ -17,16 +17,16 @@ DUPLICATE_EVENTS = [
 ]
 
 
-def _case(session) -> Case:
-    case = Case(uid=CASE_UID)
+def _case(session, court) -> Case:
+    case = Case(uid=CASE_UID, court=court)
     session.add(case)
     session.flush()
     return case
 
 
-def test_duplicate_events_collapsed_into_one(session) -> None:
+def test_duplicate_events_collapsed_into_one(session, court) -> None:
     """Два одинаковых события на странице → одно событие в БД, без IntegrityError."""
-    case = _case(session)
+    case = _case(session, court)
 
     new, updated, removed = EventRepository(session).sync_events(case, DUPLICATE_EVENTS)
 
@@ -40,9 +40,9 @@ def test_duplicate_events_collapsed_into_one(session) -> None:
     assert case.events[0].uid == event_uid(CASE_UID, date(2026, 6, 8), "Завершено")
 
 
-def test_second_sync_of_same_page_changes_nothing(session) -> None:
+def test_second_sync_of_same_page_changes_nothing(session, court) -> None:
     """Повторный парсинг той же страницы не даёт диффа."""
-    case = _case(session)
+    case = _case(session, court)
     repo = EventRepository(session)
     repo.sync_events(case, DUPLICATE_EVENTS)
     session.flush()
@@ -53,9 +53,9 @@ def test_second_sync_of_same_page_changes_nothing(session) -> None:
     assert len(case.events) == 1
 
 
-def test_same_state_different_dates_kept_separately(session) -> None:
+def test_same_state_different_dates_kept_separately(session, court) -> None:
     """Одинаковое состояние на разные даты — разные события."""
-    case = _case(session)
+    case = _case(session, court)
 
     new, _, _ = EventRepository(session).sync_events(
         case,

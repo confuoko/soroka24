@@ -1,12 +1,21 @@
 """REST-роуты для работы с делами (Case) и задачами их синхронизации."""
+from urllib.parse import urlsplit
+
 from fastapi import APIRouter, HTTPException, Response, status
 
 from app.api.schemas import CaseSyncRequest, CaseSyncResponse, SearchTaskResponse
-from app.courts import UnsupportedCourt, define_court_by_uid
+from app.courts import UnsupportedCourt, define_court_by_uid, is_supported_url
+from app.courts.msudrf_court import CASE_URL_EXAMPLE
 from app.models.database import session_scope
 from app.monitoring.tasks import sync_case
-from app.repositories import CaseRepository, SearchTaskRepository
-from app.validators import normalize_uid, validate_uid
+from app.repositories import CaseRepository, CourtRepository, SearchTaskRepository
+from app.validators import (
+    looks_like_url,
+    normalize_uid,
+    normalize_url,
+    validate_uid,
+    validate_url,
+)
 
 # Роутер с общим префиксом /search_case.
 router = APIRouter(prefix="/search_case", tags=["search_case"])
@@ -14,31 +23,55 @@ router = APIRouter(prefix="/search_case", tags=["search_case"])
 
 @router.post("", response_model=CaseSyncResponse, status_code=status.HTTP_202_ACCEPTED)
 def request_for_case_sync(payload: CaseSyncRequest, response: Response) -> CaseSyncResponse:
-    """Принять УИД, вернуть id существующего дела или запустить фоновую синхронизацию."""
-    # 1. Нормализуем и проверяем формат УИД.
-    uid = normalize_uid(payload.uid)
+    """Принять УИД или ссылку на дело и запустить фоновую синхронизацию.
+
+    Сюда приходят оба способа, потому что порталы устроены по-разному: у mos-sud.ru
+    есть поиск по УИД, а у msudrf.ru и большинства региональных его нет — там дело
+    доступно только по прямой ссылке. Что прислали, определяем по схеме адреса.
+
+    В портал здесь НЕ ходим: поход занимает полминуты, требует прокси и разгадывания
+    капчи. Всё это делает задача, где уже есть ретраи и ротация прокси, — эндпоинт
+    только заводит её и сразу отдаёт task_id.
+    """
+    value = payload.query.strip()
+    if not value:
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        return CaseSyncResponse(status="invalid_query")
+
+    if looks_like_url(value):
+        return _sync_by_url(normalize_url(value), payload.force, response)
+    return _sync_by_uid(normalize_uid(value), payload.force, response)
+
+
+def _sync_by_uid(uid: str, force: bool, response: Response) -> CaseSyncResponse:
+    """Дело задано УИД: портал умеет искать по нему сам."""
+    # 1. Проверяем формат УИД.
     if not validate_uid(uid):
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return CaseSyncResponse(status="invalid_uid")
 
-    # 2. Определяем суд по префиксу УИД; неизвестный суд — отказ.
+    # 2. Определяем суд по префиксу УИД. Поиск по УИД есть только у части порталов
+    #    (сейчас — у мировых судов Москвы), поэтому отказ здесь ещё не значит, что
+    #    дело недоступно: чаще всего его просто надо прислать ссылкой.
     try:
         define_court_by_uid(uid)
     except UnsupportedCourt:
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
-        return CaseSyncResponse(status="unsupported_court")
+        return _explain_uid_not_searchable(uid)
 
     with session_scope() as session:
-        # cases — репозиторий дел: инкапсулирует все запросы к таблице case.
         cases = CaseRepository(session)
-        # tasks — репозиторий задач поиска: работа с таблицей search_task.
         tasks = SearchTaskRepository(session)
+        # Карточка — это пара «УИД + суд»; код суда лежит в первых 8 символах УИД.
+        court = CourtRepository(session).get_by_code(uid[:8])
 
-        # 3. Дело уже в БД — сразу отдаём его id.
+        # 3. Карточка уже в БД — сразу отдаём её id.
         #    С force=true не выходим, а идём парсить заново: так наполняется история
         #    diff'ов (Case.diff_history) и подтягиваются свежие события.
-        existing_case = cases.get_by_uid(uid)
-        if existing_case is not None and not payload.force:
+        existing_case = (
+            cases.get_by_uid_and_court(uid, court.id) if court is not None else None
+        )
+        if existing_case is not None and not force:
             response.status_code = status.HTTP_200_OK
             return CaseSyncResponse(status="exists", case_id=existing_case.id)
 
@@ -48,9 +81,82 @@ def request_for_case_sync(payload: CaseSyncRequest, response: Response) -> CaseS
             return CaseSyncResponse(status="processing", task_id=active_task.id)
 
         # 5. Иначе создаём новую задачу (id сохраняем до закрытия сессии).
-        task_id = tasks.create(uid).id
+        task_id = tasks.create(uid=uid).id
 
-    # 6. Ставим фоновую обработку в срочную очередь и отвечаем id задачи.
+    return _enqueue(task_id)
+
+
+def _explain_uid_not_searchable(uid: str) -> CaseSyncResponse:
+    """Объяснить, почему по этому УИД дело не найти, и что делать вместо этого.
+
+    Первые 8 символов УИД — код суда в справочнике, так что суд мы почти всегда можем
+    назвать по имени, даже когда искать по УИД у него нельзя. Без такого пояснения
+    ответ выглядел бы как «суд не поддержан», хотя дело прекрасно достаётся ссылкой.
+    """
+    code = uid[:8]
+    with session_scope() as session:
+        court = CourtRepository(session).get_by_code(code)
+        # Забираем название до закрытия сессии.
+        court_name = court.name if court is not None else None
+
+    if court_name is None:
+        return CaseSyncResponse(
+            status="unsupported_court",
+            message=f"Суд с кодом {code} не найден в справочнике судов.",
+        )
+
+    return CaseSyncResponse(
+        status="link_required",
+        message=(
+            f"{court_name}: поиск по УИД на этом портале не поддерживается. "
+            f"Пришлите ссылку на карточку дела, например {CASE_URL_EXAMPLE}"
+        ),
+    )
+
+
+def _sync_by_url(url: str, force: bool, response: Response) -> CaseSyncResponse:
+    """Дело задано ссылкой: поиска по УИД у портала нет, карточка открывается напрямую.
+
+    УИД станет известен только внутри задачи, когда она получит страницу, поэтому и
+    дело, и активную задачу ищем по самой ссылке.
+    """
+    # 1. Проверяем, что это вообще адрес и что портал нам знаком.
+    if not validate_url(url):
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        return CaseSyncResponse(
+            status="invalid_query", message="Это не похоже на адрес карточки дела."
+        )
+    if not is_supported_url(url):
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        return CaseSyncResponse(
+            status="unsupported_court",
+            message=f"Портал {urlsplit(url).hostname} пока не поддержан.",
+        )
+
+    with session_scope() as session:
+        cases = CaseRepository(session)
+        tasks = SearchTaskRepository(session)
+
+        # 2. Карточка с этой ссылкой уже разобрана — отдаём её id (адрес уникален).
+        existing_case = cases.get_by_url(url)
+        if existing_case is not None and not force:
+            response.status_code = status.HTTP_200_OK
+            return CaseSyncResponse(status="exists", case_id=existing_case.id)
+
+        # 3. По этой же ссылке уже идёт задача — отдаём её, дубль не заводим.
+        active_task = tasks.get_active_by_url(url)
+        if active_task is not None:
+            return CaseSyncResponse(status="processing", task_id=active_task.id)
+
+        task_id = tasks.create(source_url=url).id
+
+    return _enqueue(task_id)
+
+
+def _enqueue(task_id: int) -> CaseSyncResponse:
+    """Поставить задачу в срочную очередь и вернуть её id."""
+    # apply_async только ПОСЛЕ коммита: иначе воркер может схватить задачу раньше,
+    # чем строка появится в БД.
     sync_case.apply_async(args=[task_id], queue="urgent")
     return CaseSyncResponse(status="processing", task_id=task_id)
 
@@ -67,6 +173,7 @@ def get_search_task(task_id: int) -> SearchTaskResponse:
         return SearchTaskResponse(
             task_id=task.id,
             uid=task.uid,
+            source_url=task.source_url,
             status=task.status,
             case_id=task.case_id,
             attempts=task.attempts,

@@ -13,9 +13,16 @@ from app.models.database import CourtLevel, SearchStatus, SideType
 
 
 class CaseSyncRequest(BaseModel):
-    """Тело запроса POST /search_case: УИД дела для синхронизации."""
+    """Тело запроса POST /search_case: чем искать дело.
 
-    uid: str  # уникальный идентификатор дела (например, 77MS0466-01-2026-003751-93)
+    Одно поле на оба способа: у порталов вроде mos-sud.ru есть поиск по УИД, а у
+    msudrf.ru и большинства региональных его нет — там дело открывается только прямой
+    ссылкой. Что именно прислали, сервер определяет сам по схеме (http:// или https://).
+    """
+
+    # УИД дела (77MS0466-01-2026-003751-93) либо ссылка на карточку
+    # (https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=...).
+    query: str
     # Перепарсить дело, даже если оно уже есть в БД (иначе сразу вернём его id).
     force: bool = False
 
@@ -23,16 +30,24 @@ class CaseSyncRequest(BaseModel):
 class CaseSyncResponse(BaseModel):
     """Ответ POST /search_case: либо id существующего дела, либо id запущенной задачи."""
 
-    status: str  # exists | processing | invalid_uid | unsupported_court
+    # exists | processing | invalid_query | invalid_uid | link_required | unsupported_court
+    status: str
     case_id: Optional[int] = None  # заполнен, если дело уже есть в БД
     task_id: Optional[int] = None  # заполнен, если запущена фоновая синхронизация
+    # Пояснение для пользователя, когда запрос отклонён: какой суд определился и что
+    # с этим делать. Заполняется у link_required и unsupported_court.
+    message: Optional[str] = None
 
 
 class SearchTaskResponse(BaseModel):
     """Ответ GET /search_case/tasks/{id}: текущее состояние задачи поиска."""
 
     task_id: int
-    uid: str
+    # Пусто, пока дело завели ссылкой и до портала ещё не дошли: УИД станет известен
+    # только когда задача откроет страницу.
+    uid: Optional[str] = None
+    # Ссылка, которой завели дело (у задач по УИД пусто).
+    source_url: Optional[str] = None
     status: SearchStatus  # pending | running | success | failed
     case_id: Optional[int] = None  # появляется, когда дело найдено/создано
     attempts: int  # сколько было попыток зайти на страницу
@@ -59,6 +74,18 @@ class CourtOut(_FromORM):
     level: CourtLevel
     region: str
     base_url: Optional[str] = None
+
+
+class CaseUrlOut(_FromORM):
+    """Адрес, по которому открывается карточка дела.
+
+    Их несколько: на одну карточку ведут http и https, разный порядок параметров,
+    сменившийся после переезда участка адрес.
+    """
+
+    url: str
+    # Когда по этому адресу последний раз удалось получить страницу (None — ни разу).
+    last_success_at: Optional[datetime] = None
 
 
 class JudgeOut(_FromORM):
@@ -133,7 +160,6 @@ class CaseDetailResponse(_FromORM):
 
     id: int
     uid: str
-    url: Optional[str] = None
     code: Optional[str] = None
     application_number: Optional[str] = None
     incoming_number: Optional[str] = None
@@ -148,7 +174,8 @@ class CaseDetailResponse(_FromORM):
     created_at: datetime
     updated_at: datetime
 
-    courts: list[CourtOut]
+    court: CourtOut
+    urls: list[CaseUrlOut] = []
     judges: list[JudgeOut]
     sides: list[SideOut]
     events: list[EventOut]

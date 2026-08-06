@@ -20,6 +20,7 @@ is_failure_key() — иначе капча приедет в парсер как
 import gzip
 import hashlib
 from datetime import datetime
+from urllib.parse import parse_qs, urlsplit
 
 from app.config import HTML_SNAPSHOT_PREFIX, S3_BUCKET
 from app.storage.s3 import get_object, put_object
@@ -31,6 +32,29 @@ TS_FORMAT = "%Y-%m-%dT%H-%M-%SZ"
 
 # Подпапка внутри папки дела для страниц, на которых упали.
 FAILURE_SUBDIR = "failed"
+
+
+def case_id_from_url(source_url: str) -> str:
+    """Идентификатор дела из ссылки на карточку (параметр case_id).
+
+    Если параметра нет — короткий хэш адреса: объект всё равно ляжет предсказуемо
+    и не смешается с чужими.
+    """
+    case_id = parse_qs(urlsplit(source_url).query).get("case_id", [None])[0]
+    if case_id:
+        return case_id
+    return "url-" + hashlib.sha256(source_url.encode("utf-8")).hexdigest()[:12]
+
+
+def url_label(source_url: str) -> str:
+    """Имя папки в бакете для дела, УИД которого ещё неизвестен.
+
+    Дела с порталов без поиска по УИД приходят ссылкой, и если поход упал до того,
+    как мы прочитали страницу, класть страницу отказа под УИД просто некуда.
+    Приставка url- сразу отличает такую папку от настоящего УИД.
+    """
+    host = urlsplit(source_url).hostname or "unknown-host"
+    return f"url-{host}_{case_id_from_url(source_url)}"
 
 
 def snapshot_sha256(html: str) -> str:

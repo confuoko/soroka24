@@ -39,7 +39,7 @@ class MoscowMirCourtClient(CourtClient):
         # Прокси, арендованный из пула на этот поход (None — идём напрямую).
         self._proxy = proxy
 
-    def fetch_case_html(self, uid: str) -> str:
+    def fetch_case_html_by_uid(self, uid: str) -> str:
         """Найти дело по УИД на mos-sud.ru и вернуть HTML карточки дела.
 
         Если по дороге что-то упало, к исключению прикладывается снимок страницы: снять

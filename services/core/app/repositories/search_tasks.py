@@ -14,9 +14,18 @@ class SearchTaskRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def create(self, uid: str) -> SearchTask:
-        """Создать новую задачу в статусе PENDING."""
-        task = SearchTask(uid=uid, status=SearchStatus.PENDING)
+    def create(
+        self, uid: Optional[str] = None, source_url: Optional[str] = None
+    ) -> SearchTask:
+        """Создать новую задачу в статусе PENDING.
+
+        Задают одно из двух: uid — если у портала есть поиск по УИД (Москва),
+        source_url — если дело пришло ссылкой и УИД станет известен только после
+        похода на страницу.
+        """
+        if not uid and not source_url:
+            raise ValueError("Задаче нужен либо УИД, либо ссылка на карточку дела")
+        task = SearchTask(uid=uid, source_url=source_url, status=SearchStatus.PENDING)
         self._session.add(task)
         self._session.flush()  # чтобы получить task.id
         return task
@@ -33,6 +42,23 @@ class SearchTaskRepository:
                 SearchTask.status.in_([SearchStatus.PENDING, SearchStatus.RUNNING]),
             )
         )
+
+    def get_active_by_url(self, source_url: str) -> Optional[SearchTask]:
+        """Незавершённая задача по этой ссылке (PENDING/RUNNING) — для идемпотентности.
+
+        Отдельно от get_active_by_uid: у задачи, заведённой ссылкой, УИД появляется
+        только после похода на портал, поэтому дедуплицировать по нему нечем.
+        """
+        return self._session.scalar(
+            select(SearchTask).where(
+                SearchTask.source_url == source_url,
+                SearchTask.status.in_([SearchStatus.PENDING, SearchStatus.RUNNING]),
+            )
+        )
+
+    def set_uid(self, task: SearchTask, uid: str) -> None:
+        """Записать УИД, найденный на странице дела, в задачу, заведённую по ссылке."""
+        task.uid = uid
 
     def mark_running(self, task: SearchTask) -> None:
         """Задача пошла в работу: статус RUNNING, +1 попытка, отметка времени."""

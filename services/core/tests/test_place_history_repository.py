@@ -19,16 +19,16 @@ DUPLICATE_ROWS = [
 ]
 
 
-def _case(session) -> Case:
-    case = Case(uid=CASE_UID)
+def _case(session, court) -> Case:
+    case = Case(uid=CASE_UID, court=court)
     session.add(case)
     session.flush()
     return case
 
 
-def test_duplicate_rows_collapsed_into_one(session) -> None:
+def test_duplicate_rows_collapsed_into_one(session, court) -> None:
     """Два одинаковых местонахождения на странице → одна строка в БД, без IntegrityError."""
-    case = _case(session)
+    case = _case(session, court)
 
     new, updated, removed = PlaceHistoryRepository(session).sync_place_history(
         case, DUPLICATE_ROWS
@@ -48,13 +48,13 @@ def test_duplicate_rows_collapsed_into_one(session) -> None:
     )
 
 
-def test_second_sync_of_same_page_changes_nothing(session) -> None:
+def test_second_sync_of_same_page_changes_nothing(session, court) -> None:
     """Повторный парсинг той же страницы не даёт диффа.
 
     Без этого схлопнутый дубль выглядел бы то новой строкой, то пропавшей, и пользователь
     получал бы ложное «появилось новое местонахождение» на каждом обходе.
     """
-    case = _case(session)
+    case = _case(session, court)
     repo = PlaceHistoryRepository(session)
     repo.sync_place_history(case, DUPLICATE_ROWS)
     session.flush()
@@ -65,9 +65,9 @@ def test_second_sync_of_same_page_changes_nothing(session) -> None:
     assert len(case.place_history) == 1
 
 
-def test_same_description_different_dates_kept_separately(session) -> None:
+def test_same_description_different_dates_kept_separately(session, court) -> None:
     """Одинаковое описание на разные даты — разные строки (как у 77MS0002-01-2026-001575-76)."""
-    case = _case(session)
+    case = _case(session, court)
 
     new, _, _ = PlaceHistoryRepository(session).sync_place_history(
         case,

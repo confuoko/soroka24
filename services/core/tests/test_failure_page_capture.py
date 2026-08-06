@@ -102,7 +102,7 @@ def test_fetch_failure_carries_page_snapshot(stub_browser) -> None:
     stub_browser(fail_on="fill", status=200)
 
     with pytest.raises(FetchFailed) as caught:
-        moscow_mir_court.MoscowMirCourtClient().fetch_case_html(CASE_UID)
+        moscow_mir_court.MoscowMirCourtClient().fetch_case_html_by_uid(CASE_UID)
 
     page = caught.value.page
     assert page.html == CAPTCHA_HTML
@@ -116,7 +116,7 @@ def test_case_not_found_carries_page_snapshot(stub_browser) -> None:
     stub_browser(link_count=0)
 
     with pytest.raises(CaseNotFound) as caught:
-        moscow_mir_court.MoscowMirCourtClient().fetch_case_html(CASE_UID)
+        moscow_mir_court.MoscowMirCourtClient().fetch_case_html_by_uid(CASE_UID)
 
     assert caught.value.page.html == CAPTCHA_HTML
 
@@ -125,7 +125,7 @@ def test_successful_fetch_returns_card_and_raises_nothing(stub_browser) -> None:
     """Когда всё хорошо — обычный HTML карточки, никаких снимков отказа."""
     stub_browser()
 
-    assert moscow_mir_court.MoscowMirCourtClient().fetch_case_html(CASE_UID) == CARD_HTML
+    assert moscow_mir_court.MoscowMirCourtClient().fetch_case_html_by_uid(CASE_UID) == CARD_HTML
 
 
 # ------------------------------------------- ошибка портала должна быть ретраибельной
@@ -140,7 +140,7 @@ def test_search_page_error_fails_fast(stub_browser, status) -> None:
     stub_browser(fail_on="fill", status=status)
 
     with pytest.raises(FetchFailed) as caught:
-        moscow_mir_court.MoscowMirCourtClient().fetch_case_html(CASE_UID)
+        moscow_mir_court.MoscowMirCourtClient().fetch_case_html_by_uid(CASE_UID)
 
     assert caught.value.page.status == status
     assert not isinstance(caught.value.reason, TimeoutError)
@@ -156,7 +156,7 @@ def test_results_page_error_is_not_mistaken_for_case_not_found(stub_browser) -> 
     stub_browser(status=200, results_status=500, link_count=0)
 
     with pytest.raises(FetchFailed) as caught:
-        moscow_mir_court.MoscowMirCourtClient().fetch_case_html(CASE_UID)
+        moscow_mir_court.MoscowMirCourtClient().fetch_case_html_by_uid(CASE_UID)
 
     assert caught.value.page.status == 500
 
@@ -170,7 +170,7 @@ def test_card_page_error_does_not_reach_parser(stub_browser) -> None:
     stub_browser(card_status=503)
 
     with pytest.raises(FetchFailed) as caught:
-        moscow_mir_court.MoscowMirCourtClient().fetch_case_html(CASE_UID)
+        moscow_mir_court.MoscowMirCourtClient().fetch_case_html_by_uid(CASE_UID)
 
     assert caught.value.page.status == 503
     assert caught.value.page.html == CARD_HTML
@@ -231,7 +231,7 @@ def test_failure_page_goes_to_failed_subfolder(task_id, recorded_uploads, monkey
         tasks,
         "define_court_by_uid",
         lambda uid, proxy=None: SimpleNamespace(
-            fetch_case_html=lambda _: (_ for _ in ()).throw(failure)
+            fetch_case_html_by_uid=lambda _: (_ for _ in ()).throw(failure)
         ),
     )
 
@@ -269,7 +269,11 @@ def previous_entry(monkeypatch):
     """Подменить «предыдущую запись истории парсинга» дела на заданную."""
 
     def _install(entry: dict):
-        monkeypatch.setattr(tasks, "CaseRepository", lambda session: SimpleNamespace(get_by_uid=lambda uid: object()))
+        monkeypatch.setattr(
+            tasks,
+            "CaseRepository",
+            lambda session: SimpleNamespace(get_by_uid_and_court=lambda uid, court_id: object()),
+        )
         monkeypatch.setattr(tasks, "last_entry", lambda case: entry)
 
     return _install
@@ -287,7 +291,9 @@ def test_snapshot_key_reused_after_successful_parse(previous_entry, recorded_upl
         }
     )
 
-    snapshot, unchanged = tasks._take_snapshot(CASE_UID, CARD_HTML, datetime(2026, 8, 4, 16, 0, 0))
+    snapshot, unchanged = tasks._take_snapshot(
+        CASE_UID, CARD_HTML, datetime(2026, 8, 4, 16, 0, 0), court_id=1
+    )
 
     assert unchanged is True
     assert recorded_uploads == []
@@ -308,7 +314,9 @@ def test_failure_key_is_never_reused_for_a_card(previous_entry, recorded_uploads
         }
     )
 
-    snapshot, unchanged = tasks._take_snapshot(CASE_UID, CARD_HTML, datetime(2026, 8, 4, 16, 0, 0))
+    snapshot, unchanged = tasks._take_snapshot(
+        CASE_UID, CARD_HTML, datetime(2026, 8, 4, 16, 0, 0), court_id=1
+    )
 
     assert unchanged is False
     assert len(recorded_uploads) == 1

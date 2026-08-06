@@ -31,16 +31,16 @@ PAGE_ROWS = [
 ]
 
 
-def _case(session) -> Case:
-    case = Case(uid=CASE_UID)
+def _case(session, court) -> Case:
+    case = Case(uid=CASE_UID, court=court)
     session.add(case)
     session.flush()
     return case
 
 
-def test_sessions_created_from_page(session) -> None:
+def test_sessions_created_from_page(session, court) -> None:
     """Заседания со страницы попадают в БД, время сохраняется."""
-    case = _case(session)
+    case = _case(session, court)
 
     new, updated, removed = CourtSessionRepository(session).sync_court_sessions(
         case, PAGE_ROWS
@@ -61,13 +61,13 @@ def test_sessions_created_from_page(session) -> None:
     )
 
 
-def test_second_sync_of_same_page_changes_nothing(session) -> None:
+def test_second_sync_of_same_page_changes_nothing(session, court) -> None:
     """Повторный парсинг той же страницы не даёт диффа.
 
     Самая опасная ошибка в этой сущности — нестабильный uid: при ней пользователь получал
     бы «назначено новое заседание» на каждом обходе.
     """
-    case = _case(session)
+    case = _case(session, court)
     repo = CourtSessionRepository(session)
     repo.sync_court_sessions(case, PAGE_ROWS)
     session.flush()
@@ -78,9 +78,9 @@ def test_second_sync_of_same_page_changes_nothing(session) -> None:
     assert len(case.court_sessions) == 2
 
 
-def test_appearing_result_is_an_update_not_a_new_session(session) -> None:
+def test_appearing_result_is_an_update_not_a_new_session(session, court) -> None:
     """У заседания появился результат → updated, а не new: identity не изменилась."""
-    case = _case(session)
+    case = _case(session, court)
     repo = CourtSessionRepository(session)
     repo.sync_court_sessions(case, PAGE_ROWS)
     session.flush()
@@ -99,9 +99,9 @@ def test_appearing_result_is_an_update_not_a_new_session(session) -> None:
     assert len(case.court_sessions) == 2
 
 
-def test_same_day_same_stage_different_time_are_two_sessions(session) -> None:
+def test_same_day_same_stage_different_time_are_two_sessions(session, court) -> None:
     """Два заседания в один день с одной стадией — разные строки: время входит в identity."""
-    case = _case(session)
+    case = _case(session, court)
 
     new, _, _ = CourtSessionRepository(session).sync_court_sessions(
         case,
@@ -118,13 +118,13 @@ def test_same_day_same_stage_different_time_are_two_sessions(session) -> None:
     assert len({s.uid for s in case.court_sessions}) == 2
 
 
-def test_duplicate_rows_collapsed_into_one(session) -> None:
+def test_duplicate_rows_collapsed_into_one(session, court) -> None:
     """Две побайтово одинаковые строки → одно заседание, flush не падает.
 
     Портал уже отдавал такие дубли в «Истории местонахождения» и ронял этим всю
     транзакцию дела на UNIQUE-индексе. Здесь индекс ix_court_session_uid такой же.
     """
-    case = _case(session)
+    case = _case(session, court)
 
     new, _, _ = CourtSessionRepository(session).sync_court_sessions(
         case, [PAGE_ROWS[0], dict(PAGE_ROWS[0])]
@@ -135,9 +135,9 @@ def test_duplicate_rows_collapsed_into_one(session) -> None:
     assert len(case.court_sessions) == 1
 
 
-def test_session_gone_from_page_is_removed(session) -> None:
+def test_session_gone_from_page_is_removed(session, court) -> None:
     """Заседание пропало со страницы → удаляем: страница — источник истины."""
-    case = _case(session)
+    case = _case(session, court)
     repo = CourtSessionRepository(session)
     repo.sync_court_sessions(case, PAGE_ROWS)
     session.flush()

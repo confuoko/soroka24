@@ -1,15 +1,19 @@
-"""Доступ к делам (Case) в БД."""
+"""Доступ к карточкам дел (Case) и их адресам (CaseUrl) в БД."""
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.database import Case, CaseLink
+from app.models.database import Case, CaseLink, CaseUrl, Court
+from app.validators import canonical_case_url
 
 # Поля Case, которые заполняет парсер из карточки дела.
+# url здесь намеренно нет: адресов у карточки несколько, они лежат в CaseUrl. Пока url
+# был полем, каждая новая ссылка перезаписывала предыдущую и попадала в историю дела
+# как «изменение» — пользователю такое видеть незачем.
 _UPDATABLE_FIELDS = (
-    "url",
     "code",
     "application_number",
     "incoming_number",
@@ -39,9 +43,21 @@ class CaseRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def get_by_uid(self, uid: str) -> Optional[Case]:
-        """Найти дело по УИД (или None)."""
-        return self._session.scalar(select(Case).where(Case.uid == uid))
+    def get_by_uid_and_court(self, uid: str, court_id: int) -> Optional[Case]:
+        """Найти карточку дела по паре «УИД + суд» (или None).
+
+        Основной способ найти карточку: сам по себе УИД не уникален — тот же УИД в
+        другом суде это другая карточка (другая инстанция).
+        """
+        return self._session.scalar(
+            select(Case).where(Case.uid == uid, Case.court_id == court_id)
+        )
+
+    def list_by_uid(self, uid: str) -> list[Case]:
+        """Все карточки с этим УИД — по одной на суд, через который прошло дело."""
+        return list(
+            self._session.scalars(select(Case).where(Case.uid == uid).order_by(Case.id))
+        )
 
     def get_full(self, case_id: int) -> Optional[Case]:
         """Дело по id со всеми связями, загруженными сразу (или None).
@@ -53,7 +69,8 @@ class CaseRepository:
             select(Case)
             .where(Case.id == case_id)
             .options(
-                selectinload(Case.courts),
+                selectinload(Case.court),
+                selectinload(Case.urls),
                 selectinload(Case.judges),
                 selectinload(Case.sides),
                 selectinload(Case.events),
@@ -66,8 +83,72 @@ class CaseRepository:
             )
         )
 
-    def upsert_by_uid(self, uid: str, data: dict) -> tuple[Case, list[CaseFieldChange]]:
-        """Найти дело по УИД или создать новое; обновить поля из data.
+    def get_by_url(self, url: str) -> Optional[Case]:
+        """Карточка по ссылке на неё (адрес уникален глобально).
+
+        Нужно для порталов без поиска по УИД: там ссылка — единственное, чем карточку
+        можно опознать до похода на страницу. Адрес приводим к канонической форме, иначе
+        та же карточка с http вместо https не нашлась бы.
+        """
+        return self._session.scalar(
+            select(Case).join(Case.urls).where(CaseUrl.url == canonical_case_url(url))
+        )
+
+    def add_url(self, case: Case, url: str) -> CaseUrl:
+        """Запомнить ещё один адрес карточки. Повторный вызов ничего не меняет.
+
+        Если адрес уже закреплён за ДРУГОЙ карточкой — это не дубль, а ошибка в данных
+        (один адрес не может вести в две карточки), поэтому падаем, а не переписываем
+        чужую привязку молча.
+        """
+        canonical = canonical_case_url(url)
+        existing = self._session.scalar(
+            select(CaseUrl).where(CaseUrl.url == canonical)
+        )
+        if existing is not None:
+            if existing.case_id != case.id:
+                raise ValueError(
+                    f"Адрес {canonical} уже закреплён за карточкой id={existing.case_id}"
+                )
+            return existing
+
+        case_url = CaseUrl(case_id=case.id, url=canonical)
+        self._session.add(case_url)
+        self._session.flush()
+        return case_url
+
+    def mark_url_success(self, url: str) -> None:
+        """Отметить, что по этому адресу страницу удалось получить."""
+        case_url = self._session.scalar(
+            select(CaseUrl).where(CaseUrl.url == canonical_case_url(url))
+        )
+        if case_url is not None:
+            case_url.last_success_at = datetime.utcnow()
+
+    @staticmethod
+    def primary_url(case: Case) -> Optional[str]:
+        """Каким адресом ходить за карточкой при повторном обходе.
+
+        Берём тот, по которому последний раз получилось. Если не получалось ещё ни по
+        одному — самый свежий из добавленных: рабочая ссылка важнее просто известной,
+        а из нерабочих больше шансов у той, которую прислали последней.
+        """
+        if not case.urls:
+            return None
+        best = max(
+            case.urls,
+            key=lambda u: (
+                u.last_success_at is not None,
+                u.last_success_at or u.created_at,
+                -u.id,
+            ),
+        )
+        return best.url
+
+    def upsert_by_uid_and_court(
+        self, uid: str, court: Court, data: dict
+    ) -> tuple[Case, list[CaseFieldChange]]:
+        """Найти карточку по паре «УИД + суд» или создать новую; обновить поля из data.
 
         Возвращает (дело, список изменившихся полей). По этому списку строится дифф:
         смена «Текущего состояния», появление решения первой инстанции и т.п. должны быть
@@ -76,10 +157,10 @@ class CaseRepository:
         У НОВОГО дела список всегда пустой: появление дела — само по себе событие, и
         засорять дифф переходами None → значение по каждому полю не нужно.
         """
-        case = self.get_by_uid(uid)
+        case = self.get_by_uid_and_court(uid, court.id)
         is_new = case is None
         if case is None:
-            case = Case(uid=uid)
+            case = Case(uid=uid, court=court)
             self._session.add(case)
 
         # Обновляем только те поля, что реально пришли от парсера. Парсер отдаёт ВСЕ

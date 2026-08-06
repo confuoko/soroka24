@@ -8,10 +8,34 @@
 в БД после прогона ничего не остаётся.
 """
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.database import engine
+from app.models.database import Court, CourtLevel, engine
 from app.monitoring import tasks
+
+
+@pytest.fixture
+def court(session) -> Court:
+    """Суд для карточки дела: без него дело завести нельзя (court_id NOT NULL).
+
+    Берём из справочника, если он уже залит (в рабочей базе там ~7700 судов), иначе
+    заводим свой — тесты не должны зависеть от того, накатывали ли справочник.
+    """
+    code = "77MS0002"
+    existing = session.scalar(select(Court).where(Court.code == code))
+    if existing is not None:
+        return existing
+
+    row = Court(
+        code=code,
+        name="Судебный участок № 2",
+        level=CourtLevel.MIRSUD,
+        region="Город Москва",
+    )
+    session.add(row)
+    session.flush()
+    return row
 
 
 @pytest.fixture(autouse=True)

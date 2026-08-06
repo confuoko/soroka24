@@ -1,4 +1,4 @@
-"""Путь до карточки дела мирового суда Московской области.
+"""Путь до карточки дела на порталах msudrf.ru (Московская область и ещё 71 регион).
 
 Ни сети, ни Chromium, ни сервиса распознавания: браузер подменён заглушкой, решатель
 капчи — счётчиком вызовов. Проверяем то, ради чего клиент и написан:
@@ -12,8 +12,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.courts import CaseNotFound, FetchFailed
-from app.courts import moscow_region_court
-from app.courts.moscow_region_court import MoscowRegionCourtClient
+from app.courts import msudrf_court
+from app.courts.msudrf_court import MsudrfCourtClient
 
 CASE_URL = (
     "https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs"
@@ -105,20 +105,20 @@ def portal(monkeypatch):
             session.ignore_https_errors = ignore_https_errors
             return session
 
-        monkeypatch.setattr(moscow_region_court, "ChromiumSession", _session_factory)
-        monkeypatch.setattr(moscow_region_court, "solve_image", _solve)
+        monkeypatch.setattr(msudrf_court, "ChromiumSession", _session_factory)
+        monkeypatch.setattr(msudrf_court, "solve_image", _solve)
         # В S3 не ходим, но проверяем, что картинку туда отдавали.
         monkeypatch.setattr(
-            moscow_region_court, "save_captcha", lambda url, png, at: None
+            msudrf_court, "save_captcha", lambda url, png, at: None
         )
         return session, solved
 
     return _install
 
 
-def _fetch(client=None) -> tuple[str, MoscowRegionCourtClient]:
-    client = client or MoscowRegionCourtClient()
-    return client.fetch_case_html(CASE_URL), client
+def _fetch(client=None) -> tuple[str, MsudrfCourtClient]:
+    client = client or MsudrfCourtClient()
+    return client.fetch_case_html_by_url(CASE_URL), client
 
 
 # ------------------------------------------------------------------ капчи не было
@@ -190,7 +190,7 @@ def test_gives_up_after_configured_attempts(portal, monkeypatch) -> None:
     Важно, что это именно FetchFailed: задача поретраится и возьмёт другой прокси.
     Если бы клиент вернул страницу капчи как карточку, парсер упал бы окончательно.
     """
-    monkeypatch.setattr(moscow_region_court, "CAPTCHA_ATTEMPTS", 3)
+    monkeypatch.setattr(msudrf_court, "CAPTCHA_ATTEMPTS", 3)
     session, solved = portal([CAPTCHA_HTML] * 5)
 
     with pytest.raises(FetchFailed) as caught:
@@ -229,11 +229,11 @@ def test_server_error_skips_captcha_entirely(portal) -> None:
 # --------------------------------------------------------------------- УИД со страницы
 def test_uid_is_extracted_from_card() -> None:
     """УИД берём со страницы: по нему потом резолвится суд (первые 8 символов — код)."""
-    assert MoscowRegionCourtClient().extract_uid(CARD_HTML) == UID
+    assert MsudrfCourtClient().extract_uid(CARD_HTML) == UID
     assert UID[:8] == "50MS0095"
 
 
 def test_missing_uid_is_case_not_found() -> None:
     """Страница есть, а карточки на ней нет — окончательный отказ, повторять нечего."""
     with pytest.raises(CaseNotFound):
-        MoscowRegionCourtClient().extract_uid(EMPTY_HTML)
+        MsudrfCourtClient().extract_uid(EMPTY_HTML)

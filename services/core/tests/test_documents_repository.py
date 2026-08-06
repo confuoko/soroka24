@@ -22,16 +22,16 @@ PAGE_ROWS = (
 )
 
 
-def _case(session) -> Case:
-    case = Case(uid=CASE_UID)
+def _case(session, court) -> Case:
+    case = Case(uid=CASE_UID, court=court)
     session.add(case)
     session.flush()
     return case
 
 
-def test_identical_rows_all_saved(session) -> None:
+def test_identical_rows_all_saved(session, court) -> None:
     """21 одинаковая строка → 21 запись с разными uid, flush без IntegrityError."""
-    case = _case(session)
+    case = _case(session, court)
 
     new, removed = DocumentRepository(session).sync_documents(case, PAGE_ROWS)
     session.flush()
@@ -46,13 +46,13 @@ def test_identical_rows_all_saved(session) -> None:
     assert len(attachments) == 21
 
 
-def test_second_sync_of_same_page_changes_nothing(session) -> None:
+def test_second_sync_of_same_page_changes_nothing(session, court) -> None:
     """Повторный парсинг той же страницы не даёт диффа.
 
     Главная проверка: нестабильный номер повторения давал бы «новый документ» на каждом
     обходе — 21 ложное уведомление по одному делу.
     """
-    case = _case(session)
+    case = _case(session, court)
     repo = DocumentRepository(session)
     repo.sync_documents(case, PAGE_ROWS)
     session.flush()
@@ -63,9 +63,9 @@ def test_second_sync_of_same_page_changes_nothing(session) -> None:
     assert len(case.documents) == 23
 
 
-def test_new_attachment_added_at_the_end(session) -> None:
+def test_new_attachment_added_at_the_end(session, court) -> None:
     """Добавилось ещё одно такое же приложение → ровно один новый документ."""
-    case = _case(session)
+    case = _case(session, court)
     repo = DocumentRepository(session)
     repo.sync_documents(case, PAGE_ROWS)
     session.flush()
@@ -85,9 +85,9 @@ def test_new_attachment_added_at_the_end(session) -> None:
     assert len(case.documents) == 24
 
 
-def test_document_gone_from_page_is_removed(session) -> None:
+def test_document_gone_from_page_is_removed(session, court) -> None:
     """Документ пропал со страницы → удаляем: страница — источник истины."""
-    case = _case(session)
+    case = _case(session, court)
     repo = DocumentRepository(session)
     repo.sync_documents(case, PAGE_ROWS)
     session.flush()
@@ -101,14 +101,14 @@ def test_document_gone_from_page_is_removed(session) -> None:
     assert len(case.documents) == 22
 
 
-def test_other_types_do_not_shift_the_counter(session) -> None:
+def test_other_types_do_not_shift_the_counter(session, court) -> None:
     """Документ другого вида, вставленный выше, не сдвигает uid приложений.
 
     Счётчик повторений ведётся внутри группы (дата, вид), а не по всей таблице — иначе
     появление одной строки выше «сдвинуло» бы uid всех соседей и повторный парсинг
     посчитал бы их удалёнными.
     """
-    case = _case(session)
+    case = _case(session, court)
     repo = DocumentRepository(session)
     repo.sync_documents(case, PAGE_ROWS)
     session.flush()
