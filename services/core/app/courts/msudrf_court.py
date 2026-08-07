@@ -25,11 +25,12 @@ https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=429386415&delo_i
 
 Метод parse() делегирует парсеру типа B — его ещё предстоит написать.
 """
+import dataclasses
 import logging
 from datetime import datetime
 
 from app.browser import ChromiumSession, ProxySettings
-from app.captcha import solve_image
+from app.captcha import AttemptSink, solve_image
 from app.config import CAPTCHA_ATTEMPTS
 from app.courts.base import (
     CourtClient,
@@ -70,11 +71,18 @@ class MsudrfCourtClient(CourtClient):
     page_type = "B"
 
     def __init__(
-        self, headless: bool = True, proxy: ProxySettings | None = None
+        self,
+        headless: bool = True,
+        proxy: ProxySettings | None = None,
+        on_captcha_attempt: AttemptSink | None = None,
     ) -> None:
         self._headless = headless
         # Прокси, арендованный из пула на этот поход (None — идём напрямую).
         self._proxy = proxy
+        # Куда сообщать о каждой оплаченной капче. Сам клиент в БД не ходит: он лишь
+        # дописывает в запись то, что знает только он (номер проверки за поход и ключ
+        # картинки в S3), а хранит расход вызывающий код.
+        self._on_captcha_attempt = on_captcha_attempt
         # Сколько капч пришлось разгадать за последний поход — для отчёта скрипта.
         self.captchas_solved = 0
 
@@ -113,7 +121,7 @@ class MsudrfCourtClient(CourtClient):
                 return html  # проверки нет или она уже пройдена
 
             logger.info("Портал просит пройти проверку (попытка %d): %s", attempt, url)
-            answer = self._solve_visible_captcha(session, url)
+            answer = self._solve_visible_captcha(session, url, attempt)
             session.page.fill(CAPTCHA_INPUT, answer)
             # Форма без action — POST уходит на тот же адрес дела.
             session.submit_and_wait(CAPTCHA_SUBMIT)
@@ -128,19 +136,39 @@ class MsudrfCourtClient(CourtClient):
             page=capture_page(session, status),
         )
 
-    @staticmethod
-    def _solve_visible_captcha(session: ChromiumSession, url: str) -> str:
+    def _solve_visible_captcha(
+        self, session: ChromiumSession, url: str, attempt_no: int
+    ) -> str:
         """Снять картинку капчи со страницы, отложить в S3 и получить разгадку.
 
         Именно СКРИНШОТ элемента, а не скачивание /captcha.php по адресу: повторный
         запрос к нему сгенерирует НОВУЮ картинку, и разгаданный ответ к показанной на
         странице уже не подойдёт.
+
+        attempt_no — какая это проверка по счёту за поход: в учёте расходов по нему
+        видно, что портал показал капчу не один раз.
         """
         png = session.page.locator(CAPTCHA_IMAGE).screenshot()
-        save_captcha(url, png, datetime.utcnow())
-        answer, task_id = solve_image(png)
-        logger.debug("Капча разгадана (задача %s): %r", task_id, answer)
-        return answer
+        stored = save_captcha(url, png, datetime.utcnow())
+
+        def _report(attempt):
+            """Дополнить запись тем, что известно только здесь, и отдать в учёт."""
+            self._on_captcha_attempt(
+                dataclasses.replace(
+                    attempt,
+                    attempt_no=attempt_no,
+                    captcha_key=stored["captcha_key"] if stored else None,
+                )
+            )
+
+        # Решатель сам решает, о каких исходах сообщать (о таймауте — тоже: деньги за
+        # него могли списаться). Если учёт не подключён, ему нечего и передавать.
+        solved = solve_image(png, on_attempt=_report if self._on_captcha_attempt else None)
+        logger.debug(
+            "Капча разгадана (задача %s, стоимость %s): %r",
+            solved.task_id, solved.cost, solved.text,
+        )
+        return solved.text
 
     def parse(self, html: str) -> dict:
         """Разбор HTML карточки в данные дела — делегируем парсеру по типу страницы."""

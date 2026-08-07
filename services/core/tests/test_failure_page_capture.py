@@ -230,7 +230,7 @@ def test_failure_page_goes_to_failed_subfolder(task_id, recorded_uploads, monkey
     monkeypatch.setattr(
         tasks,
         "define_court_by_uid",
-        lambda uid, proxy=None: SimpleNamespace(
+        lambda uid, proxy=None, **kwargs: SimpleNamespace(
             fetch_case_html_by_uid=lambda _: (_ for _ in ()).throw(failure)
         ),
     )
@@ -252,7 +252,7 @@ def test_failure_page_goes_to_failed_subfolder(task_id, recorded_uploads, monkey
 def test_nothing_saved_when_error_has_no_page(task_id, recorded_uploads, monkeypatch) -> None:
     """Упали до открытия страницы — сохранять нечего, хранилище не засоряем."""
 
-    def _boom(uid: str, proxy=None):
+    def _boom(uid: str, proxy=None, **kwargs):
         raise TimeoutError("сеть недоступна")
 
     monkeypatch.setattr(tasks, "define_court_by_uid", _boom)

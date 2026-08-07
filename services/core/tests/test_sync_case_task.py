@@ -7,12 +7,15 @@
 session_scope() и коммитит их — подменить это внешней транзакцией нельзя. Созданную
 строку search_task фикстура удаляет за собой.
 """
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 from celery.exceptions import Retry
+from sqlalchemy import delete, select
 
-from app.models.database import SearchStatus, SearchTask, session_scope
+from app.captcha import ATTEMPT_SOLVED, CaptchaAttempt
+from app.models.database import CaptchaSolve, SearchStatus, SearchTask, session_scope
 from app.monitoring import tasks
 from app.repositories import SearchTaskRepository
 
@@ -39,6 +42,22 @@ class _StubTask:
         return Retry()
 
 
+def _cleanup(task_row_id: int) -> None:
+    """Убрать за тестом задачу и записанные ею расходы на капчу.
+
+    Расходы удаляем явно: у captcha_solve.search_task_id стоит SET NULL, поэтому вместе
+    с задачей строки не уходят — так и задумано (деньги потрачены), но в тестовой базе
+    им оставаться незачем.
+    """
+    with session_scope() as session:
+        session.execute(
+            delete(CaptchaSolve).where(CaptchaSolve.search_task_id == task_row_id)
+        )
+        row = session.get(SearchTask, task_row_id)
+        if row is not None:
+            session.delete(row)
+
+
 @pytest.fixture
 def task_id():
     """Реальная строка search_task в PENDING; после теста удаляется."""
@@ -48,10 +67,7 @@ def task_id():
 
     yield created_id
 
-    with session_scope() as session:
-        row = session.get(SearchTask, created_id)
-        if row is not None:
-            session.delete(row)
+    _cleanup(created_id)
 
 
 @pytest.fixture
@@ -63,17 +79,14 @@ def url_task_id():
 
     yield created_id
 
-    with session_scope() as session:
-        row = session.get(SearchTask, created_id)
-        if row is not None:
-            session.delete(row)
+    _cleanup(created_id)
 
 
 @pytest.fixture
 def court_is_down(monkeypatch):
     """Портал не открывается: любой поход за страницей падает по таймауту."""
 
-    def _boom(uid: str, proxy=None):
+    def _boom(uid: str, proxy=None, **kwargs):
         raise TimeoutError('Page.fill: Timeout 30000ms exceeded.')
 
     monkeypatch.setattr(tasks, "define_court_by_uid", _boom)
@@ -177,13 +190,13 @@ def test_url_task_discovers_uid_and_saves_link(url_task_id, monkeypatch) -> None
             return {"code": "1-234/2026"}
 
     monkeypatch.setattr(
-        tasks, "define_court_by_url", lambda url, proxy=None: _Client()
+        tasks, "define_court_by_url", lambda url, proxy=None, **kw: _Client()
     )
     # По УИД такое дело не ищется — если задача полезет этим путём, тест это поймает.
     monkeypatch.setattr(
         tasks,
         "define_court_by_uid",
-        lambda uid, proxy=None: pytest.fail("по ссылке искать по УИД не должны"),
+        lambda uid, proxy=None, **kw: pytest.fail("по ссылке искать по УИД не должны"),
     )
     monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: (None, False))
     captured = {}
@@ -210,3 +223,51 @@ def test_url_task_discovers_uid_and_saves_link(url_task_id, monkeypatch) -> None
     # УИД дописан в задачу сразу после похода — виден в статусе, даже если разбор упал.
     with session_scope() as session:
         assert session.get(SearchTask, url_task_id).uid == URL_CASE_UID
+
+
+# ----------------------------------------------------------------- учёт расходов
+def test_captcha_cost_is_recorded_even_when_the_task_fails(url_task_id, monkeypatch) -> None:
+    """Расход на капчу записывается, даже если до карточки мы так и не добрались.
+
+    Именно этот случай и теряется без учёта: портал показал проверку, мы за неё
+    заплатили, а потом упали по таймауту — деньги ушли, а следа бы не осталось.
+    """
+
+    def _court(url, proxy=None, on_captcha_attempt=None, **kwargs):
+        class _Client:
+            page_type = "B"
+
+            def fetch_case_html_by_url(self, url):
+                # Так ведёт себя настоящий клиент: сначала платит за проверку, а падает
+                # уже потом.
+                on_captcha_attempt(
+                    CaptchaAttempt(
+                        task_id=987654,
+                        status=ATTEMPT_SOLVED,
+                        text="ответ",
+                        cost=Decimal("0.031"),
+                        attempt_no=1,
+                        captcha_key="captcha/95.mo.msudrf.ru/429386415/x.png",
+                    )
+                )
+                raise TimeoutError("Page.fill: Timeout 30000ms exceeded.")
+
+        return _Client()
+
+    monkeypatch.setattr(tasks, "define_court_by_url", _court)
+
+    with pytest.raises(Retry):
+        tasks._sync_case(_StubTask(retries=0), url_task_id)
+
+    with session_scope() as session:
+        row = session.scalar(
+            select(CaptchaSolve).where(CaptchaSolve.search_task_id == url_task_id)
+        )
+        assert row is not None
+        assert row.cost == Decimal("0.03100")
+        assert row.provider_task_id == 987654
+        assert row.attempt_no == 1
+        # Хост берём из ссылки задачи: в УИД номера участка нет.
+        assert row.host == "95.mo.msudrf.ru"
+        # Дела в БД ещё нет, поэтому расход пока висит только на задаче.
+        assert row.case_id is None

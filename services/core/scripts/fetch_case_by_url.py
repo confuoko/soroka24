@@ -52,6 +52,22 @@ def _save_html(url: str, html: str) -> Path:
     return path
 
 
+def _captcha_report(attempts: list) -> str:
+    """«2 шт., 0.06 RUB» — сколько капч решено за поход и во сколько это обошлось.
+
+    Цену с неизвестной стоимостью (не дождались ответа) считаем отдельно: занижать
+    расход молчанием нельзя.
+    """
+    if not attempts:
+        return "0 шт."
+    known = [a.cost for a in attempts if a.cost is not None]
+    if not known:
+        return f"{len(attempts)} шт., цена неизвестна"
+    unknown = len(attempts) - len(known)
+    tail = f", без цены: {unknown}" if unknown else ""
+    return f"{len(attempts)} шт., {sum(known)} {attempts[0].currency}{tail}"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Сходить по ссылке на дело мирового суда Московской области."
@@ -76,7 +92,15 @@ def main() -> None:
     failed = 0
     for url in args.url:
         print(url)
-        client = define_court_by_url(url, proxy=proxy, headless=not args.no_headless)
+        # Расходы копим в список, а не пишем в БД: скрипт запускают руками, задачи под
+        # него нет, а увидеть живые цены сервиса полезно — они плавают от нагрузки.
+        spent = []
+        client = define_court_by_url(
+            url,
+            proxy=proxy,
+            headless=not args.no_headless,
+            on_captcha_attempt=spent.append,
+        )
         started = datetime.utcnow()
         try:
             html = client.fetch_case_html_by_url(url)
@@ -84,11 +108,11 @@ def main() -> None:
         except Exception as exc:
             failed += 1
             print(f"  [FAIL] {type(exc).__name__}: {str(exc).splitlines()[0][:160]}")
-            print(f"  капч разгадано: {client.captchas_solved}\n")
+            print(f"  капчи: {_captcha_report(spent)}\n")
             continue
 
         elapsed = (datetime.utcnow() - started).total_seconds()
-        print(f"  [OK ] html: {len(html)} симв., капч разгадано: {client.captchas_solved}")
+        print(f"  [OK ] html: {len(html)} симв., капчи: {_captcha_report(spent)}")
         print(f"  УИД: {uid}")
         print(f"  суд {uid[:8]}: {_court_name(uid)}")
         if args.save_html:

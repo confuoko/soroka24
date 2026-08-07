@@ -17,8 +17,9 @@ from celery.exceptions import Retry
 from celery.utils.log import get_task_logger
 
 from app.browser import lease_proxy
+from app.captcha import CaptchaAttempt
 from app.celery_app import celery_app
-from app.config import HTML_SNAPSHOT_ENABLED
+from app.config import HTML_SNAPSHOT_ENABLED, S3_BUCKET
 from app.courts import (
     CaseNotFound,
     NewCourtException,
@@ -38,7 +39,12 @@ from app.monitoring.parse_history import (
     changes_to_dict,
     last_entry,
 )
-from app.repositories import CaseRepository, CourtRepository, SearchTaskRepository
+from app.repositories import (
+    CaptchaSolveRepository,
+    CaseRepository,
+    CourtRepository,
+    SearchTaskRepository,
+)
 from app.storage import is_failure_key, save_snapshot, snapshot_sha256, url_label
 
 logger = get_task_logger(__name__)
@@ -199,6 +205,74 @@ def _save_failure_page(
         return None, page.status
 
 
+def _captcha_recorder(task_id: int, celery_retry: int, source_url: str | None = None):
+    """Собрать колбэк, который пишет расход на капчу в БД.
+
+    Каждая запись идёт СВОЕЙ короткой транзакцией, а не копится до конца задачи:
+    деньги списаны в момент, когда сервис отдал ответ, а поход браузера после этого
+    может идти ещё минуту и закончиться падением воркера — расход бы потерялся.
+
+    Дело здесь обычно ещё неизвестно (задачу заводили ссылкой, УИД берётся с самой
+    страницы), поэтому case_id проставляется позже — _attach_captcha_costs().
+
+    Ошибку записи глотаем: сорванный учёт не повод отказываться от дела, ради которого
+    капчу и разгадывали.
+    """
+
+    def _record(attempt: CaptchaAttempt) -> None:
+        try:
+            with session_scope() as session:
+                CaptchaSolveRepository(session).record(
+                    attempt,
+                    search_task_id=task_id,
+                    source_url=source_url,
+                    # Бакет в записи от решателя не приходит — он наш, из настроек.
+                    captcha_bucket=S3_BUCKET if attempt.captcha_key else None,
+                    celery_retry=celery_retry,
+                )
+            logger.info(
+                "Капча задачи %s: %s %s (задача сервиса %s)",
+                task_id, attempt.cost, attempt.currency, attempt.task_id,
+            )
+        except Exception as exc:
+            logger.warning("Не удалось записать расход на капчу задачи %s: %s", task_id, exc)
+
+    return _record
+
+
+def _attach_captcha_costs_to_case(task_id: int, case_id: int) -> None:
+    """Привязать расходы задачи к делу по его id в БД.
+
+    Ошибку глотаем и здесь: расход уже записан на задачу, и потерять из-за отчёта
+    саму синхронизацию было бы хуже, чем потерять привязку к делу.
+    """
+    try:
+        with session_scope() as session:
+            CaptchaSolveRepository(session).attach_case(task_id, case_id)
+    except Exception as exc:
+        logger.warning("Не удалось привязать расходы задачи %s к делу: %s", task_id, exc)
+
+
+def _attach_captcha_costs(task_id: int, uid: str | None, court_id: int | None) -> None:
+    """Привязать расходы задачи к карточке дела, если она уже есть в БД.
+
+    Зовём и на успехе, и на отказах: провалившийся обход тоже стоил денег, а карточка
+    при повторных обходах обычно уже существует. Если карточки ещё нет (дело качаем
+    впервые), расход пока висит только на задаче и привяжется, когда она появится.
+    """
+    if not uid or court_id is None:
+        return
+    try:
+        with session_scope() as session:
+            case = CaseRepository(session).get_by_uid_and_court(uid, court_id)
+            case_id = case.id if case is not None else None
+    except Exception as exc:
+        logger.warning("Не удалось найти дело для расходов задачи %s: %s", task_id, exc)
+        return
+    if case_id is not None:
+        _attach_captcha_costs_to_case(task_id, case_id)
+
+
 def _court_id_for(uid: str | None) -> int | None:
     """id суда по коду из УИД (первые 8 символов) — или None, если суда нет.
 
@@ -283,6 +357,12 @@ def _sync_case(celery_task, task_id: int) -> None:
     # имени из УИД нет — берём его из адреса, иначе страницу отказа некуда положить.
     label = uid or url_label(source_url)
 
+    # Куда клиент суда будет сообщать о расходах на капчу. Номер ретрая берём заранее:
+    # в отчёте по нему видно, что до дела пришлось идти несколько раз.
+    on_captcha = _captcha_recorder(
+        task_id, celery_task.request.retries, source_url=source_url
+    )
+
     # 2. Долгая часть без БД: сходить браузером в суд за HTML карточки.
     fetched_at = datetime.utcnow()
     try:
@@ -295,7 +375,9 @@ def _sync_case(celery_task, task_id: int) -> None:
             # мы узнаём уже из неё. Ссылка — постоянный адрес дела, поэтому и первый
             # разбор, и каждый повторный обход идут этим же путём.
             logger.info("Дело по ссылке %s: идём через прокси %s", source_url, proxy or "напрямую")
-            client = define_court_by_url(source_url, proxy=proxy)
+            client = define_court_by_url(
+                source_url, proxy=proxy, on_captcha_attempt=on_captcha
+            )
             html = client.fetch_case_html_by_url(source_url)
             uid = client.extract_uid(html)
             label = uid
@@ -303,26 +385,31 @@ def _sync_case(celery_task, task_id: int) -> None:
             logger.info("По ссылке %s найдено дело %s", source_url, uid)
         else:
             logger.info("Дело %s: идём через прокси %s", uid, proxy or "напрямую")
-            client = define_court_by_uid(uid, proxy=proxy)
+            client = define_court_by_uid(uid, proxy=proxy, on_captcha_attempt=on_captcha)
             html = client.fetch_case_html_by_uid(uid)
         fetched_at = datetime.utcnow()
     except (UnsupportedCourt, CaseNotFound) as exc:
         # Окончательные ошибки — повторять бессмысленно.
         snapshot, page_status = _save_failure_page(label, exc, fetched_at)
+        failed_court_id = _court_id_for(uid)
         _record_parse_entry(
             label, STATUS_FETCH_ERROR, fetched_at, task_id, snapshot=snapshot,
-            error=str(exc), court_id=_court_id_for(uid),
+            error=str(exc), court_id=failed_court_id,
         )
+        # Капчи по дороге были оплачены, даже если карточку мы так и не получили.
+        _attach_captcha_costs(task_id, uid, failed_court_id)
         _mark_failed(task_id, str(exc), page_status=page_status)
         return
     except Exception as exc:
         # Временная ошибка (403/timeout/сеть): записать и повторить, пока есть попытки.
         # Запись в историю делаем на каждой попытке — так видно, сколько раз суд не открылся.
         snapshot, page_status = _save_failure_page(label, exc, fetched_at)
+        failed_court_id = _court_id_for(uid)
         _record_parse_entry(
             label, STATUS_FETCH_ERROR, fetched_at, task_id, snapshot=snapshot,
-            error=str(exc), court_id=_court_id_for(uid),
+            error=str(exc), court_id=failed_court_id,
         )
+        _attach_captcha_costs(task_id, uid, failed_court_id)
         # Счётчик попыток проверяем САМИ, до вызова retry: если в retry(exc=...) передан exc,
         # то при исчерпании попыток Celery пробрасывает именно его, а не MaxRetriesExceededError
         # (celery/app/task.py: `if max_retries is not None and retries > max_retries` →
@@ -342,6 +429,10 @@ def _sync_case(celery_task, task_id: int) -> None:
     if court_id is None:
         _mark_failed(task_id, f"Новый суд, требуется завести справочник: {uid[:8]}")
         return
+
+    # Расходы на капчу привязываем к карточке сразу, как только известны УИД и суд:
+    # дальше задача ещё может упасть на разборе, а деньги уже потрачены.
+    _attach_captcha_costs(task_id, uid, court_id)
 
     # 2b. Снапшот HTML — до разбора, чтобы разметка сохранилась даже если парсер упадёт.
     snapshot, html_unchanged = _take_snapshot(uid, html, fetched_at, court_id=court_id)
@@ -392,6 +483,11 @@ def _sync_case(celery_task, task_id: int) -> None:
         # Новый суд — повторять бессмысленно, помечаем задачу проваленной.
         _mark_failed(task_id, f"Новый суд, требуется завести справочник: {exc}")
         return
+
+    # Дело качали впервые — на момент разгадки капчи карточки не существовало, поэтому
+    # расходы привязываем теперь, когда она создана. Для повторных обходов это уже
+    # сделано выше и повторный UPDATE ничего не тронет (привязанные строки не меняем).
+    _attach_captcha_costs_to_case(task_id, case_id)
 
     # Успех фиксируем отдельной транзакцией (первая уже закоммичена).
     with session_scope() as session:

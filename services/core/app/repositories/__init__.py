@@ -1,4 +1,5 @@
 # Доступ к данным (Repository pattern): вся работа с БД собрана здесь.
+from app.repositories.captcha_solves import CaptchaSolveRepository
 from app.repositories.cases import CaseFieldChange, CaseRepository
 from app.repositories.court_sessions import CourtSessionRepository
 from app.repositories.courts import CourtRepository
@@ -11,6 +12,7 @@ from app.repositories.search_tasks import SearchTaskRepository
 from app.repositories.sides import SideRepository
 
 __all__ = [
+    "CaptchaSolveRepository",
     "CaseRepository",
     "CaseFieldChange",
     "CourtRepository",

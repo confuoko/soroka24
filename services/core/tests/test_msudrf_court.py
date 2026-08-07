@@ -7,10 +7,12 @@
   * попытки конечны, и когда они кончились — это ВРЕМЕННЫЙ отказ, не «дело не найдено»;
   * УИД берётся со страницы, потому что из ссылки суд не выводится.
 """
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 
+from app.captcha import ATTEMPT_SOLVED, CaptchaAttempt
 from app.courts import CaseNotFound, FetchFailed
 from app.courts import msudrf_court
 from app.courts.msudrf_court import MsudrfCourtClient
@@ -97,9 +99,18 @@ def portal(monkeypatch):
         session = _StubSession(pages, status=status)
         solved = []
 
-        def _solve(png: bytes) -> tuple[str, int]:
+        def _solve(png: bytes, on_attempt=None) -> CaptchaAttempt:
             solved.append(png)
-            return f"answer-{len(solved)}", 1000 + len(solved)
+            attempt = CaptchaAttempt(
+                task_id=1000 + len(solved),
+                status=ATTEMPT_SOLVED,
+                text=f"answer-{len(solved)}",
+                cost=Decimal("0.03"),
+            )
+            # Настоящий решатель сообщает о расходе сам, до возврата ответа.
+            if on_attempt is not None:
+                on_attempt(attempt)
+            return attempt
 
         def _session_factory(headless=True, proxy=None, ignore_https_errors=False):
             session.ignore_https_errors = ignore_https_errors
@@ -109,7 +120,9 @@ def portal(monkeypatch):
         monkeypatch.setattr(msudrf_court, "solve_image", _solve)
         # В S3 не ходим, но проверяем, что картинку туда отдавали.
         monkeypatch.setattr(
-            msudrf_court, "save_captcha", lambda url, png, at: None
+            msudrf_court,
+            "save_captcha",
+            lambda url, png, at: {"captcha_key": f"captcha/{len(png)}.png"},
         )
         return session, solved
 
@@ -181,6 +194,34 @@ def test_second_captcha_in_a_row_is_handled(portal) -> None:
     assert len(solved) == 2
     assert session.typed == ["answer-1", "answer-2"]
     assert client.captchas_solved == 2
+
+
+# --------------------------------------------------------------- учёт расходов
+def test_each_captcha_is_reported_for_accounting(portal) -> None:
+    """Каждая капча уходит в учёт с тем, что знает только клиент суда.
+
+    Номер проверки за поход и ключ картинки в S3 решателю неизвестны, а без них по
+    записи не понять, за что заплатили и сколько раз портал показал проверку.
+    """
+    session, _ = portal([CAPTCHA_HTML, CAPTCHA_HTML, CARD_HTML])
+    reported = []
+
+    html, _ = _fetch(MsudrfCourtClient(on_captcha_attempt=reported.append))
+
+    assert html == CARD_HTML
+    assert [a.attempt_no for a in reported] == [1, 2]
+    assert all(a.captcha_key for a in reported)
+    assert [a.text for a in reported] == ["answer-1", "answer-2"]
+
+
+def test_accounting_is_optional(portal) -> None:
+    """Без подключённого учёта клиент работает как раньше: капча решается, ошибок нет."""
+    portal([CAPTCHA_HTML, CARD_HTML])
+
+    html, client = _fetch()
+
+    assert html == CARD_HTML
+    assert client.captchas_solved == 1
 
 
 # ------------------------------------------------------------- попытки исчерпаны

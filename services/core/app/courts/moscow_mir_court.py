@@ -5,6 +5,7 @@
 Метод parse() пока заглушка — разбор HTML напишем позже (в app/parsers/).
 """
 from app.browser import ChromiumSession, ProxySettings
+from app.captcha import AttemptSink
 from app.courts.base import (
     CaseNotFound,
     CourtClient,
@@ -33,11 +34,16 @@ class MoscowMirCourtClient(CourtClient):
     page_type = "A"
 
     def __init__(
-        self, headless: bool = True, proxy: ProxySettings | None = None
+        self,
+        headless: bool = True,
+        proxy: ProxySettings | None = None,
+        on_captcha_attempt: AttemptSink | None = None,
     ) -> None:
         self._headless = headless
         # Прокси, арендованный из пула на этот поход (None — идём напрямую).
         self._proxy = proxy
+        # on_captcha_attempt принимаем и не используем: на mos-sud.ru капчи нет, а
+        # сигнатура конструктора у всех клиентов судов общая (её задаёт резолвер).
 
     def fetch_case_html_by_uid(self, uid: str) -> str:
         """Найти дело по УИД на mos-sud.ru и вернуть HTML карточки дела.

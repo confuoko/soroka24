@@ -12,6 +12,7 @@
 from urllib.parse import urlsplit
 
 from app.browser import ProxySettings
+from app.captcha import AttemptSink
 from app.courts.base import CourtClient, UnsupportedCourt
 from app.courts.moscow_mir_court import MoscowMirCourtClient
 from app.courts.msudrf_court import DOMAIN as MSUDRF_DOMAIN
@@ -32,23 +33,33 @@ COURT_BY_DOMAIN = {
 
 
 def define_court_by_uid(
-    uid: str, proxy: ProxySettings | None = None, headless: bool = True
+    uid: str,
+    proxy: ProxySettings | None = None,
+    headless: bool = True,
+    on_captcha_attempt: AttemptSink | None = None,
 ) -> CourtClient:
     """Определить суд по префиксу УИД (например, 77MS -> мировые суды Москвы).
 
     proxy — арендованный из пула прокси, через который клиент пойдёт на портал.
+    on_captcha_attempt — куда сообщать о расходах на капчу (учёт ведёт вызывающий).
     """
     # Проверяем известные префиксы и возвращаем первый подходящий клиент.
     for prefix, court_client_cls in COURT_BY_PREFIX.items():
         if uid.startswith(prefix):
-            return court_client_cls(proxy=proxy, headless=headless)  # экземпляр клиента суда
+            # экземпляр клиента суда
+            return court_client_cls(
+                proxy=proxy, headless=headless, on_captcha_attempt=on_captcha_attempt
+            )
     # Ни один префикс не подошёл — по УИД такое дело не найти (возможно, его портал
     # поддержан, но только по ссылке).
     raise UnsupportedCourt(uid)
 
 
 def define_court_by_url(
-    url: str, proxy: ProxySettings | None = None, headless: bool = True
+    url: str,
+    proxy: ProxySettings | None = None,
+    headless: bool = True,
+    on_captcha_attempt: AttemptSink | None = None,
 ) -> CourtClient:
     """Определить суд по домену ссылки на карточку дела."""
     host = (urlsplit(url).hostname or "").lower()
@@ -56,7 +67,9 @@ def define_court_by_url(
         # Сравниваем по границе имени, а не через `in`: иначе «msudrf.ru.evil.com»
         # тоже подошёл бы, и мы пошли бы браузером куда угодно.
         if host == domain or host.endswith(f".{domain}"):
-            return court_client_cls(proxy=proxy, headless=headless)
+            return court_client_cls(
+                proxy=proxy, headless=headless, on_captcha_attempt=on_captcha_attempt
+            )
     raise UnsupportedCourt(url)
 
 
