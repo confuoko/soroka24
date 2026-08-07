@@ -11,6 +11,8 @@ from app.models.database import Case
 from app.repositories.place_history import PlaceHistoryRepository, place_history_uid
 
 CASE_UID = "77MS0002-01-2026-000001-11"
+# Номер дела: часть ключа карточки, поэтому обязателен.
+CASE_CODE = "02-0001/2/2026"
 
 # Ровно то, что лежит в снапшоте дела 77MS0002-01-2026-001236-26: два одинаковых <tr>.
 DUPLICATE_ROWS = [
@@ -20,7 +22,7 @@ DUPLICATE_ROWS = [
 
 
 def _case(session, court) -> Case:
-    case = Case(uid=CASE_UID, court=court)
+    case = Case(uid=CASE_UID, court=court, code=CASE_CODE)
     session.add(case)
     session.flush()
     return case

@@ -30,7 +30,7 @@ from app.config import HTML_SNAPSHOT_PREFIX  # noqa: E402
 from app.courts import UnsupportedCourt  # noqa: E402
 from app.monitoring.reparse import reparse_case_from_snapshot  # noqa: E402
 from app.storage import is_failure_key, list_keys  # noqa: E402
-from app.storage.html_snapshots import _TS_FORMAT  # noqa: E402
+from app.storage.html_snapshots import TS_FORMAT  # noqa: E402
 
 # Разделы диффа, по которым печатаем сводку (ключ в changes_to_dict → подпись).
 DIFF_SECTIONS = (
@@ -45,22 +45,41 @@ DIFF_SECTIONS = (
 def _snapshot_taken_at(key: str) -> datetime | None:
     """Время снятия снапшота из имени объекта (None, если имя нестандартное).
 
-    Ключ выглядит как html_snapshots/<уид>/<уид>_2026-08-04T15-21-21Z.html.gz — время
-    лежит между последним «_» и «.html.gz» (см. html_snapshots.snapshot_key).
+    Ключ выглядит как html_snapshots/<уид>/<карточка>/<уид>_2026-08-04T15-21-21Z.html.gz —
+    время лежит между последним «_» и «.html.gz» (см. html_snapshots.snapshot_key).
     """
     name = key.rsplit("/", 1)[-1]
     if not name.endswith(".html.gz") or "_" not in name:
         return None
     stamp = name[: -len(".html.gz")].rsplit("_", 1)[-1]
     try:
-        return datetime.strptime(stamp, _TS_FORMAT)
+        return datetime.strptime(stamp, TS_FORMAT)
     except ValueError:
         return None
 
 
+def _card_of(key: str) -> tuple[str, str]:
+    """Дело и карточка, к которым относится снапшот: (уид, папка карточки).
+
+    Ключ — html_snapshots/<уид>/<карточка>/<файл>. У снапшотов, снятых до появления
+    уровня карточки, среднего сегмента нет: html_snapshots/<уид>/<файл>. Такие тоже
+    обрабатываем — папкой карточки для них считается пустая строка, и reparse сопоставит
+    их с делом, если карточка у УИД одна.
+    """
+    segments = key.split("/")
+    uid = segments[1]
+    card = segments[2] if len(segments) >= 4 else ""
+    return uid, card
+
+
 def _latest_snapshot_per_case(uid_filter: str | None) -> list[tuple[str, str, datetime]]:
-    """Самый свежий снапшот карточки по каждому делу: [(уид, ключ, время снятия)]."""
-    latest: dict[str, tuple[str, datetime]] = {}
+    """Самый свежий снапшот по каждой КАРТОЧКЕ: [(уид, ключ, время снятия)].
+
+    Именно по карточке, а не по делу: по одному УИД карточек бывает несколько (разные
+    суды, разные производства), и перепарсить надо каждую — иначе часть дел осталась бы
+    с необновлёнными данными.
+    """
+    latest: dict[tuple[str, str], tuple[str, datetime]] = {}
 
     prefix = f"{HTML_SNAPSHOT_PREFIX}/{uid_filter}/" if uid_filter else f"{HTML_SNAPSHOT_PREFIX}/"
     for key in list_keys(prefix):
@@ -69,11 +88,14 @@ def _latest_snapshot_per_case(uid_filter: str | None) -> list[tuple[str, str, da
         taken_at = _snapshot_taken_at(key)
         if taken_at is None:
             continue
-        uid = key.split("/")[1]
-        if uid not in latest or taken_at > latest[uid][1]:
-            latest[uid] = (key, taken_at)
+        card = _card_of(key)
+        if card not in latest or taken_at > latest[card][1]:
+            latest[card] = (key, taken_at)
 
-    return [(uid, key, taken_at) for uid, (key, taken_at) in sorted(latest.items())]
+    return [
+        (uid, key, taken_at)
+        for (uid, _card), (key, taken_at) in sorted(latest.items())
+    ]
 
 
 def _summarize(diff: dict) -> str:

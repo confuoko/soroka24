@@ -91,8 +91,10 @@ class CaseAdmin(ModelView, model=Case):
 
     name = "Дело"
     name_plural = "Дела"
-    # Суд в списке: карточка — это пара «УИД + суд», по одному УИД строк может быть несколько.
-    column_list = [Case.id, Case.uid, Case.court, Case.application_number, Case.status, Case.created_at]
+    # Суд и номер дела в списке: карточка — это тройка «УИД + суд + номер», по одному
+    # УИД строк может быть несколько (разные суды и разные производства).
+    column_list = [Case.id, Case.uid, Case.court, Case.code, Case.application_number, Case.status, Case.created_at]
+    column_searchable_list = [Case.uid, Case.code]
     # Историю парсингов (diff_history) SQLAdmin покажет в карточке дела сам —
     # column_details_list по умолчанию включает все колонки модели.
 
@@ -137,8 +139,10 @@ class CourtAdmin(ModelView, model=Court):
 
     name = "Суд"
     name_plural = "Суды"
-    column_list = [Court.id, Court.code, Court.name, Court.level, Court.region]
-    column_searchable_list = [Court.code, Court.name, Court.region]
+    # base_url в списке: по его хосту определяется суд дела, пришедшего ссылкой, и
+    # разбирать «почему дело привязалось не туда» начинают именно с адреса.
+    column_list = [Court.id, Court.code, Court.name, Court.base_url, Court.level, Court.region]
+    column_searchable_list = [Court.code, Court.name, Court.region, Court.base_url]
 
     @action(
         name="sync_courts_json",

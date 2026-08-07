@@ -11,6 +11,8 @@ from app.models.database import Case
 from app.repositories.court_sessions import CourtSessionRepository, court_session_uid
 
 CASE_UID = "77MS0002-01-2026-000005-55"
+# Номер дела: часть ключа карточки, поэтому обязателен.
+CASE_CODE = "02-0005/2/2026"
 
 # Как у 77MS0002-01-2026-001503-98: беседа прошла, судебное заседание ещё впереди.
 PAGE_ROWS = [
@@ -32,7 +34,7 @@ PAGE_ROWS = [
 
 
 def _case(session, court) -> Case:
-    case = Case(uid=CASE_UID, court=court)
+    case = Case(uid=CASE_UID, court=court, code=CASE_CODE)
     session.add(case)
     session.flush()
     return case

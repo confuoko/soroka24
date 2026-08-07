@@ -4,10 +4,18 @@
 нельзя было ни перепроверить diff, ни отладить парсер на настоящей разметке.
 
 Раскладка в бакете:
-    <бакет>/html_snapshots/<уид дела>/<уид дела>_<время>.html.gz
-    <бакет>/html_snapshots/<уид дела>/failed/<уид дела>_<время>.html.gz
-Папка на дело + УИД в имени файла: скачанный поодиночке объект остаётся понятным.
-gzip — карточка дела весит ~500 КБ текста и сжимается примерно в 8 раз.
+    <бакет>/html_snapshots/<уид>/<код суда>-<номер дела>/<уид>_<время>.html.gz
+    <бакет>/html_snapshots/<уид>/failed/<уид>_<время>.html.gz
+Папка на дело + папка на карточку + УИД в имени файла: скачанный поодиночке объект
+остаётся понятным. gzip — карточка дела весит ~500 КБ текста и сжимается примерно в 8 раз.
+
+Средний уровень (карточка) нужен потому, что УИД сквозной: по одному УИД бывает несколько
+карточек — в разных судах (дело пошло по инстанциям) и в одном суде с разными номерами
+(приказное производство, затем исковое). Без него их разметка ложилась бы вперемешку в
+одну папку, а по ключу нельзя было бы понять, к какой карточке относится снапшот.
+
+Страницы отказа лежат в failed/ без уровня карточки: в момент отказа ни суда, ни номера
+дела мы обычно ещё не знаем — до таблицы результатов дело не дошло.
 
 Подпапка failed/ — страницы, на которых парсинг упал (капча, блокировка, изменившаяся
 разметка). Они лежат внутри папки дела, чтобы всё по делу было в одном префиксе, но
@@ -62,12 +70,33 @@ def snapshot_sha256(html: str) -> str:
     return hashlib.sha256(html.encode("utf-8")).hexdigest()
 
 
-def snapshot_key(uid: str, fetched_at: datetime, failed: bool = False) -> str:
-    """Ключ объекта в бакете для этого дела и момента получения страницы.
+def card_folder(court_code: str, case_code: str) -> str:
+    """Имя папки карточки внутри папки дела: «<код суда>-<номер дела>».
 
-    failed=True — страница, на которой парсинг упал: кладём в подпапку failed/.
+    Слэши из номера дела («05-0444/1/2026») заменяем на дефисы: в ключе объекта слэш —
+    разделитель уровней, и без замены одна карточка расползлась бы на три папки.
     """
-    folder = f"{uid}/{FAILURE_SUBDIR}" if failed else uid
+    slug = case_code.strip().replace("\\", "/").replace("/", "-")
+    return f"{court_code}-{slug}"
+
+
+def snapshot_key(
+    uid: str, fetched_at: datetime, failed: bool = False, card: str | None = None
+) -> str:
+    """Ключ объекта в бакете для этой карточки и момента получения страницы.
+
+    card — имя папки карточки из card_folder(). Без него объект ложится прямо в папку
+    дела: так лежат старые снапшоты, снятые до появления уровня карточки.
+
+    failed=True — страница, на которой парсинг упал: кладём в подпапку failed/. Уровень
+    карточки там не используется, её в момент отказа обычно ещё не знают.
+    """
+    if failed:
+        folder = f"{uid}/{FAILURE_SUBDIR}"
+    elif card:
+        folder = f"{uid}/{card}"
+    else:
+        folder = uid
     return f"{HTML_SNAPSHOT_PREFIX}/{folder}/{uid}_{fetched_at.strftime(TS_FORMAT)}.html.gz"
 
 
@@ -76,16 +105,22 @@ def is_failure_key(key: str) -> bool:
     return f"/{FAILURE_SUBDIR}/" in key
 
 
-def save_snapshot(uid: str, html: str, fetched_at: datetime, failed: bool = False) -> dict:
+def save_snapshot(
+    uid: str,
+    html: str,
+    fetched_at: datetime,
+    failed: bool = False,
+    card: str | None = None,
+) -> dict:
     """Сжать HTML и положить в S3.
 
-    failed=True — страница отказа (см. snapshot_key).
+    failed=True — страница отказа, card — папка карточки (см. snapshot_key).
 
     Возвращает {"html_bucket", "html_key", "html_sha256", "html_size"}: бакет, ключ
     объекта, хэш исходного (несжатого) текста и его размер в байтах.
     """
     raw = html.encode("utf-8")
-    key = snapshot_key(uid, fetched_at, failed=failed)
+    key = snapshot_key(uid, fetched_at, failed=failed, card=card)
 
     # mtime=0 — чтобы одинаковый HTML давал побайтово одинаковый архив (иначе gzip
     # подмешивает в заголовок текущее время и объекты нельзя сравнивать напрямую).

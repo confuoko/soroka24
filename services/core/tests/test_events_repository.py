@@ -10,6 +10,8 @@ from app.models.database import Case
 from app.repositories.events import EventRepository, event_uid
 
 CASE_UID = "77MS0002-01-2026-000002-22"
+# Номер дела: часть ключа карточки, поэтому обязателен.
+CASE_CODE = "02-0002/2/2026"
 
 DUPLICATE_EVENTS = [
     {"event_date": date(2026, 6, 8), "state_description": "Завершено", "document_str": None},
@@ -18,7 +20,7 @@ DUPLICATE_EVENTS = [
 
 
 def _case(session, court) -> Case:
-    case = Case(uid=CASE_UID, court=court)
+    case = Case(uid=CASE_UID, court=court, code=CASE_CODE)
     session.add(case)
     session.flush()
     return case

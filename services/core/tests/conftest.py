@@ -29,9 +29,12 @@ def court(session) -> Court:
 
     row = Court(
         code=code,
+        # Номер участка в названии и хост в адресе — то, по чему определяется суд дела
+        # (см. CourtRepository.get_by_participok / get_by_host).
         name="Судебный участок № 2",
         level=CourtLevel.MIRSUD,
         region="Город Москва",
+        base_url="http://mos-sud.ru/ms/2",
     )
     session.add(row)
     session.flush()

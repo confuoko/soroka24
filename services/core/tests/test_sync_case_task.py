@@ -83,6 +83,18 @@ def url_task_id():
 
 
 @pytest.fixture
+def url_court(monkeypatch):
+    """Суд для дела, пришедшего ссылкой: определяется по хосту ещё до похода на портал.
+
+    Подменяем сам резолвер, а не заливаем справочник: эти тесты про статусную машину
+    задачи, а сопоставление хоста с судом проверяется отдельно (test_court_lookup.py).
+    """
+    court = tasks.CourtRef(id=1, code="50MS0095")
+    monkeypatch.setattr(tasks, "_court_by_url", lambda url: court)
+    return court
+
+
+@pytest.fixture
 def court_is_down(monkeypatch):
     """Портал не открывается: любой поход за страницей падает по таймауту."""
 
@@ -168,11 +180,16 @@ def test_retry_is_not_swallowed_by_the_guard(task_id, monkeypatch) -> None:
 
 
 # ------------------------------------------------------ дело, заведённое по ссылке
-def test_url_task_discovers_uid_and_saves_link(url_task_id, monkeypatch) -> None:
-    """Задача по ссылке: открыли страницу, нашли УИД, записали его и ссылку в дело.
+class _StopBeforeWrite(Exception):
+    """Прервать задачу перед записью дела: саму запись проверяют другие тесты."""
 
-    Это главное отличие второго входа: УИД не приходит извне, а добывается со
-    страницы, и только после этого работает привычная привязка суда по uid[:8].
+
+def test_url_task_discovers_uid_and_saves_link(url_task_id, url_court, monkeypatch) -> None:
+    """Задача по ссылке: открыли страницу, нашли УИД и номер дела, записали ссылку в дело.
+
+    Это главное отличие второго входа: УИД не приходит извне, а добывается со страницы.
+    Суд при этом берётся из ХОСТА ссылки и известен ещё до похода на портал — по УИД его
+    не определяют.
     """
     recorded = {}
 
@@ -186,8 +203,11 @@ def test_url_task_discovers_uid_and_saves_link(url_task_id, monkeypatch) -> None
         def extract_uid(self, html):
             return URL_CASE_UID
 
+        def extract_case_code(self, html):
+            return "2-1585/2026"
+
         def parse(self, html):
-            return {"code": "1-234/2026"}
+            return {"status": "Рассмотрено"}
 
     monkeypatch.setattr(
         tasks, "define_court_by_url", lambda url, proxy=None, **kw: _Client()
@@ -201,22 +221,30 @@ def test_url_task_discovers_uid_and_saves_link(url_task_id, monkeypatch) -> None
     monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: (None, False))
     captured = {}
 
-    def _update_case(session, uid, data, court):
+    def _update_case(session, uid, data, court, code):
         captured["uid"] = uid
         captured["data"] = data
-        raise tasks.NewCourtException("суд в тесте не заводим")
+        captured["court_code"] = court.code
+        captured["code"] = code
+        raise _StopBeforeWrite
 
     monkeypatch.setattr(tasks, "update_case", _update_case)
     monkeypatch.setattr(
         tasks,
         "CourtRepository",
-        lambda session: SimpleNamespace(get_by_code=lambda c: SimpleNamespace(id=1)),
+        lambda session: SimpleNamespace(
+            get_by_code=lambda c: SimpleNamespace(id=1, code=c)
+        ),
     )
 
-    tasks._sync_case(_StubTask(retries=0), url_task_id)
+    with pytest.raises(_StopBeforeWrite):
+        tasks._sync_case(_StubTask(retries=0), url_task_id)
 
     assert recorded["fetched"] == CASE_URL
     assert captured["uid"] == URL_CASE_UID
+    # Суд — из хоста ссылки, номер дела — из заголовка страницы.
+    assert captured["court_code"] == url_court.code
+    assert captured["code"] == "2-1585/2026"
     # Ссылку кладём в дело: по ней его будут открывать при каждом следующем обходе.
     assert captured["data"]["url"] == CASE_URL
 
@@ -225,8 +253,190 @@ def test_url_task_discovers_uid_and_saves_link(url_task_id, monkeypatch) -> None
         assert session.get(SearchTask, url_task_id).uid == URL_CASE_UID
 
 
+def test_url_task_fails_when_host_is_not_in_reference(url_task_id, monkeypatch) -> None:
+    """Хоста нет в справочнике → задача падает сразу, на портал не ходим.
+
+    Поход занимает полминуты и стоит капчи, а без суда карточку всё равно не сохранить.
+    """
+    monkeypatch.setattr(tasks, "_court_by_url", lambda url: None)
+    monkeypatch.setattr(
+        tasks,
+        "define_court_by_url",
+        lambda url, proxy=None, **kw: pytest.fail("на портал идти не должны"),
+    )
+
+    tasks._sync_case(_StubTask(retries=0), url_task_id)
+
+    status, last_error, _ = _status(url_task_id)
+    assert status is SearchStatus.FAILED
+    assert "95.mo.msudrf.ru" in last_error
+
+
+# ------------------------------------------------- несколько карточек на один УИД
+def test_all_rows_of_the_results_table_become_cards(task_id, monkeypatch) -> None:
+    """По одному УИД портал показал два производства → сохраняем ОБА.
+
+    Раньше клиент брал только первую строку таблицы, и второе производство (а иногда и
+    другой участок) молча терялось.
+    """
+    from app.courts import FetchedCard
+
+    cards = [
+        FetchedCard(code="02-0848/2/2026", html="<html>первое</html>", participok_no=2),
+        FetchedCard(code="05-0445/23/2026", html="<html>второе</html>", participok_no=23),
+    ]
+    courts = {2: tasks.CourtRef(id=1, code="77MS0002"), 23: tasks.CourtRef(id=2, code="77MS0023")}
+
+    monkeypatch.setattr(
+        tasks,
+        "define_court_by_uid",
+        lambda uid, proxy=None, **kw: SimpleNamespace(
+            fetch_cases_by_uid=lambda _: cards,
+            parse=lambda html: {"status": html},
+        ),
+    )
+    monkeypatch.setattr(
+        tasks, "_court_by_participok", lambda region_code, number: courts[number]
+    )
+    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: (None, False))
+    monkeypatch.setattr(tasks, "_attach_captcha_costs_to_case", lambda *a, **kw: None)
+    # Карточки поддельные, в БД их нет — настоящий mark_success упал бы на внешнем ключе.
+    succeeded = []
+    monkeypatch.setattr(
+        tasks, "_mark_success", lambda tid, case_id: succeeded.append(case_id)
+    )
+
+    saved = []
+    ids = iter([101, 102])
+
+    def _update_case(session, uid, data, court, code):
+        saved.append((court.code, code, data["status"]))
+        return SimpleNamespace(
+            case=SimpleNamespace(id=next(ids)),
+            has_changes=lambda: False,
+            field_changes=[], new_events=[], updated_events=[], removed_events=[],
+            new_places=[], updated_places=[], removed_places=[],
+            new_sessions=[], updated_sessions=[], removed_sessions=[],
+            new_documents=[], removed_documents=[],
+            added_judges=[], removed_judges=[], added_sides=[], removed_sides=[],
+        )
+
+    monkeypatch.setattr(tasks, "update_case", _update_case)
+    monkeypatch.setattr(tasks, "append_parse_entry", lambda case, entry: None)
+    monkeypatch.setattr(tasks, "changes_to_dict", lambda changes: {})
+    monkeypatch.setattr(
+        tasks,
+        "CourtRepository",
+        lambda session: SimpleNamespace(
+            get_by_code=lambda c: SimpleNamespace(id=1, code=c)
+        ),
+    )
+
+    tasks._sync_case(_StubTask(retries=0), task_id)
+
+    # Каждая строка таблицы дала свою карточку — со своим судом и своим номером.
+    assert saved == [
+        ("77MS0002", "02-0848/2/2026", "<html>первое</html>"),
+        ("77MS0023", "05-0445/23/2026", "<html>второе</html>"),
+    ]
+    # В самой задаче остаётся первая карточка: поле одно на задачу.
+    assert succeeded == [101]
+
+
+def test_broken_row_does_not_lose_the_others(task_id, monkeypatch) -> None:
+    """Разбор одной карточки упал → вторая всё равно сохраняется, задача успешна.
+
+    Это разные производства: то, что у одного поехала разметка, к другому отношения
+    не имеет.
+    """
+    from app.courts import FetchedCard
+
+    cards = [
+        FetchedCard(code="02-0848/2/2026", html="<html>битая</html>", participok_no=2),
+        FetchedCard(code="05-0445/2/2026", html="<html>целая</html>", participok_no=2),
+    ]
+
+    def _parse(html):
+        if "битая" in html:
+            raise ValueError("не нашёл карточку в разметке")
+        return {"status": "ok"}
+
+    monkeypatch.setattr(
+        tasks,
+        "define_court_by_uid",
+        lambda uid, proxy=None, **kw: SimpleNamespace(
+            fetch_cases_by_uid=lambda _: cards, parse=_parse
+        ),
+    )
+    monkeypatch.setattr(
+        tasks, "_court_by_participok", lambda region_code, number: tasks.CourtRef(id=1, code="77MS0002")
+    )
+    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: (None, False))
+    monkeypatch.setattr(tasks, "_record_parse_entry", lambda *a, **kw: None)
+    monkeypatch.setattr(tasks, "_attach_captcha_costs_to_case", lambda *a, **kw: None)
+    succeeded = []
+    monkeypatch.setattr(
+        tasks, "_mark_success", lambda tid, case_id: succeeded.append(case_id)
+    )
+
+    saved = []
+
+    def _update_case(session, uid, data, court, code):
+        saved.append(code)
+        return SimpleNamespace(
+            case=SimpleNamespace(id=201),
+            has_changes=lambda: False,
+            field_changes=[], new_events=[], updated_events=[], removed_events=[],
+            new_places=[], updated_places=[], removed_places=[],
+            new_sessions=[], updated_sessions=[], removed_sessions=[],
+            new_documents=[], removed_documents=[],
+            added_judges=[], removed_judges=[], added_sides=[], removed_sides=[],
+        )
+
+    monkeypatch.setattr(tasks, "update_case", _update_case)
+    monkeypatch.setattr(tasks, "append_parse_entry", lambda case, entry: None)
+    monkeypatch.setattr(tasks, "changes_to_dict", lambda changes: {})
+    monkeypatch.setattr(
+        tasks,
+        "CourtRepository",
+        lambda session: SimpleNamespace(
+            get_by_code=lambda c: SimpleNamespace(id=1, code=c)
+        ),
+    )
+
+    tasks._sync_case(_StubTask(retries=0), task_id)
+
+    assert saved == ["05-0445/2/2026"]
+    assert succeeded == [201]  # задача успешна, хотя одна карточка и не далась
+
+
+def test_unknown_participok_fails_the_task(task_id, monkeypatch) -> None:
+    """Участка нет в справочнике → дело не парсим, задача падает с внятной ошибкой."""
+    from app.courts import FetchedCard
+
+    monkeypatch.setattr(
+        tasks,
+        "define_court_by_uid",
+        lambda uid, proxy=None, **kw: SimpleNamespace(
+            fetch_cases_by_uid=lambda _: [
+                FetchedCard(code="02-0848/2/2026", html="<html/>", participok_no=777)
+            ],
+            parse=lambda html: pytest.fail("без суда разбирать нечего"),
+        ),
+    )
+    monkeypatch.setattr(tasks, "_court_by_participok", lambda region_code, number: None)
+
+    tasks._sync_case(_StubTask(retries=0), task_id)
+
+    status, last_error, _ = _status(task_id)
+    assert status is SearchStatus.FAILED
+    assert "777" in last_error
+
+
 # ----------------------------------------------------------------- учёт расходов
-def test_captcha_cost_is_recorded_even_when_the_task_fails(url_task_id, monkeypatch) -> None:
+def test_captcha_cost_is_recorded_even_when_the_task_fails(
+    url_task_id, url_court, monkeypatch
+) -> None:
     """Расход на капчу записывается, даже если до карточки мы так и не добрались.
 
     Именно этот случай и теряется без учёта: портал показал проверку, мы за неё

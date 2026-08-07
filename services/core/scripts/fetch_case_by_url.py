@@ -23,6 +23,7 @@ import argparse
 import sys
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # Добавляем корень core в sys.path, чтобы `import app...` работал при запуске из любой папки.
 CORE_ROOT = Path(__file__).resolve().parent.parent
@@ -36,10 +37,15 @@ from app.repositories import CourtRepository  # noqa: E402
 HTML_DIR = CORE_ROOT / "html_examples"
 
 
-def _court_name(uid: str) -> str:
-    """Название суда из справочника по коду из УИД (или пометка, что его там нет)."""
+def _court_name(url: str) -> str:
+    """Название суда из справочника по хосту ссылки (или пометка, что его там нет).
+
+    По хосту, а не по УИД: у каждого участка движка msudrf.ru свой поддомен, и именно так
+    суд дела определяет задача синхронизации.
+    """
+    host = (urlsplit(url).hostname or "").lower()
     with session_scope() as session:
-        court = CourtRepository(session).get_by_code(uid[:8])
+        court = CourtRepository(session).get_by_host(host)
         return court.name if court is not None else "НЕТ В СПРАВОЧНИКЕ"
 
 
@@ -114,7 +120,7 @@ def main() -> None:
         elapsed = (datetime.utcnow() - started).total_seconds()
         print(f"  [OK ] html: {len(html)} симв., капчи: {_captcha_report(spent)}")
         print(f"  УИД: {uid}")
-        print(f"  суд {uid[:8]}: {_court_name(uid)}")
+        print(f"  суд по хосту {urlsplit(url).hostname}: {_court_name(url)}")
         if args.save_html:
             print(f"  сохранено: {_save_html(url, html)}")
         print(f"  время: {elapsed:.0f} c\n")

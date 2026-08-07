@@ -10,9 +10,12 @@
 на mos-sud.ru. Здесь поиска по УИД нет: на вход приходит ПРЯМАЯ ССЫЛКА на карточку,
 например
 https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=429386415&delo_id=1540005
-а УИД, наоборот, извлекается из полученной страницы — и уже по нему привязывается суд.
-Выводить суд из ссылки нельзя: поддомен — это номер судебного участка, и с номером в
-коде суда он совпадает не всегда (у 50MS0392 участок № 235, то есть 235.mo.msudrf.ru).
+а УИД, наоборот, извлекается из полученной страницы.
+
+Суд определяется по хосту ссылки: у каждого участка движка свой поддомен, и он сверяется
+с хостом Court.base_url. Обратите внимание, что поддомен — это номер участка, и с числом в
+коде суда он совпадает не всегда (у 50MS0392 участок № 235, то есть 235.mo.msudrf.ru),
+поэтому сопоставление идёт по самому хосту, а не по арифметике над кодом.
 
 Две особенности движка, из-за которых клиент выглядит именно так:
 
@@ -27,12 +30,14 @@ https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=429386415&delo_i
 """
 import dataclasses
 import logging
+import re
 from datetime import datetime
 
 from app.browser import ChromiumSession, ProxySettings
 from app.captcha import AttemptSink, solve_image
 from app.config import CAPTCHA_ATTEMPTS
 from app.courts.base import (
+    CaseNotFound,
     CourtClient,
     CourtError,
     FetchFailed,
@@ -63,6 +68,10 @@ CAPTCHA_MARK = "Для продолжения необходимо пройти 
 CAPTCHA_IMAGE = "#kcaptchaForm img"
 CAPTCHA_INPUT = 'input[name="captcha-response"]'
 CAPTCHA_SUBMIT = "#kcaptchaForm button[type='submit']"
+
+# Номер дела на карточке движка: в таблице его нет, он стоит только в заголовке —
+# <h2>ДЕЛО № 2-1244/2026</h2> (примеры — html_examples/mo_case_*.html).
+CASE_CODE_RE = re.compile(r"ДЕЛО\s*№\s*([^<]+)", re.IGNORECASE)
 
 
 class MsudrfCourtClient(CourtClient):
@@ -169,6 +178,20 @@ class MsudrfCourtClient(CourtClient):
             solved.task_id, solved.cost, solved.text,
         )
         return solved.text
+
+    def extract_case_code(self, html: str) -> str:
+        """Достать номер дела из заголовка карточки: <h2>ДЕЛО № 2-1244/2026</h2>.
+
+        В таблице карточки номера нет — только в заголовке, поэтому берём его оттуда.
+        Номер входит в ключ карточки, так что без него дело не сохранить: отсутствие
+        заголовка означает, что открылась не карточка (или поехала разметка), и повторять
+        поход бессмысленно.
+        """
+        match = CASE_CODE_RE.search(html)
+        code = match.group(1).strip() if match else ""
+        if not code:
+            raise CaseNotFound("На странице нет номера дела")
+        return code
 
     def parse(self, html: str) -> dict:
         """Разбор HTML карточки в данные дела — делегируем парсеру по типу страницы."""

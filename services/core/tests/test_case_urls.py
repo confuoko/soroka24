@@ -1,8 +1,11 @@
-"""Карточка дела = пара «УИД + суд», адресов к ней несколько.
+"""Карточка дела = тройка «УИД + суд + номер дела», адресов к ней несколько.
 
 УИД сквозной: он не меняется, когда дело идёт по инстанциям, поэтому один и тот же УИД
 встречается на странице участка мирового судьи и на странице районного суда — это разные
-карточки. А на одну карточку, наоборот, ведёт много внешне разных адресов.
+карточки. В одном суде по одному УИД тоже бывает несколько карточек: приказное
+производство и последовавшее исковое различаются номером дела.
+
+А на одну карточку, наоборот, ведёт много внешне разных адресов.
 """
 from datetime import datetime, timedelta
 
@@ -14,6 +17,7 @@ from app.repositories.cases import CaseRepository
 from app.validators import canonical_case_url
 
 UID = "50MS0095-01-2026-002990-16"
+CODE = "2-1585/2026"
 CASE_URL = (
     "https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs"
     "&case_id=429386415&delo_id=1540005"
@@ -34,8 +38,8 @@ def other_court(session) -> Court:
     return row
 
 
-def _case(session, court, uid: str = UID) -> Case:
-    case = Case(uid=uid, court=court)
+def _case(session, court, uid: str = UID, code: str = CODE) -> Case:
+    case = Case(uid=uid, court=court, code=code)
     session.add(case)
     session.flush()
     return case
@@ -172,8 +176,24 @@ def test_same_uid_in_two_courts_are_two_cards(session, court, other_court) -> No
     assert {c.id for c in CaseRepository(session).list_by_uid(UID)} == {first.id, second.id}
 
 
-def test_same_uid_in_one_court_is_rejected(session, court) -> None:
-    """А дважды завести карточку в одном суде нельзя — это и есть ключ."""
+def test_same_uid_and_court_with_other_code_are_two_cards(session, court) -> None:
+    """В одном суде по одному УИД два производства → две карточки.
+
+    Приказное производство отменили и завели исковое: УИД сквозной, суд тот же, номер
+    дела новый. Ровно ради этого номер попал в ключ.
+    """
+    first = _case(session, court, code="2-1585/2026")
+    second = _case(session, court, code="2-1777/2026")
+
+    assert first.id != second.id
+    assert {c.id for c in CaseRepository(session).list_by_uid_and_court(UID, court.id)} == {
+        first.id,
+        second.id,
+    }
+
+
+def test_same_uid_court_and_code_is_rejected(session, court) -> None:
+    """А дважды завести карточку с той же тройкой нельзя — это и есть ключ."""
     _case(session, court)
 
     # Внутри savepoint: нарушение ограничения рвёт транзакцию, а внешнюю (её откатывает
@@ -182,14 +202,17 @@ def test_same_uid_in_one_court_is_rejected(session, court) -> None:
         _case(session, court)
 
 
-def test_card_is_found_by_uid_and_court(session, court, other_court) -> None:
-    """Поиск идёт по паре: по одному УИД карточек может быть несколько."""
+def test_card_is_found_by_uid_court_and_code(session, court, other_court) -> None:
+    """Поиск идёт по тройке: по одному УИД карточек может быть несколько."""
     repo = CaseRepository(session)
     mine = _case(session, court)
     _case(session, other_court)
+    _case(session, court, code="2-1777/2026")
 
-    assert repo.get_by_uid_and_court(UID, court.id).id == mine.id
-    assert repo.get_by_uid_and_court(UID, 10**9) is None
+    assert repo.get_by_uid_court_code(UID, court.id, CODE).id == mine.id
+    # Тот же УИД и суд, но чужой номер — это другая карточка, а не эта.
+    assert repo.get_by_uid_court_code(UID, court.id, "2-0000/2026") is None
+    assert repo.get_by_uid_court_code(UID, 10**9, CODE) is None
 
 
 def test_url_dies_with_its_card(session, court) -> None:

@@ -44,7 +44,7 @@ def task(session) -> SearchTask:
 @pytest.fixture
 def case(session, court) -> Case:
     """Карточка дела, к которой потом привязываются расходы."""
-    row = Case(uid="50MS0095-01-2026-002990-16", court_id=court.id)
+    row = Case(uid="50MS0095-01-2026-002990-16", court_id=court.id, code="2-1585/2026")
     session.add(row)
     session.flush()
     return row
@@ -118,7 +118,7 @@ def test_attach_case_does_not_move_already_linked_costs(costs, session, task, ca
 
     Одна задача — одна карточка; переносить деньги на чужое дело было бы порчей отчёта.
     """
-    other = Case(uid="50MS0095-01-2026-000777-11", court_id=case.court_id)
+    other = Case(uid="50MS0095-01-2026-000777-11", court_id=case.court_id, code="2-0777/2026")
     session.add(other)
     session.flush()
     costs.record(_attempt(1009), search_task_id=task.id, case_id=case.id)

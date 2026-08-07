@@ -5,25 +5,26 @@
 --     Без кавычек Postgres примет начало за число и выдаст
 --     "trailing junk after numeric literal".
 --
+-- !!! На один УИД строк может быть НЕСКОЛЬКО: карточка — это тройка «УИД + суд + номер
+--     дела». Один и тот же УИД встречается в разных судах (дело шло по инстанциям) и в
+--     одном суде с разными номерами (приказное производство, затем исковое).
+--
 -- Чтобы посмотреть другое дело — замени значение УИД (по одному месту на запрос,
 -- отмечено «<-- УИД ЗДЕСЬ»).
 
 
 -- ============================================================================
--- Запрос 1. Компактно: одна строка на дело, привязки собраны в колонки
---           (суды / судьи / стороны — каждая сущность с новой строки внутри ячейки).
+-- Запрос 1. Компактно: одна строка на КАРТОЧКУ, привязки собраны в колонки
+--           (судьи / стороны — каждая сущность с новой строки внутри ячейки).
 -- ============================================================================
 SELECT
     c.id,
     c.uid,
     c.code,
+    ct.name || ' (' || ct.code || ')'                                AS court,
     c.status,
     c.category,
     c.receipt_date,
-    (SELECT string_agg(ct.name || ' (' || ct.code || ')', E'\n' ORDER BY ct.name)
-       FROM case_court cc
-       JOIN court ct ON ct.id = cc.court_id
-      WHERE cc.case_id = c.id)                                       AS courts,
     (SELECT string_agg(j.full_name, E'\n' ORDER BY j.full_name)
        FROM case_judge cj
        JOIN judge j ON j.id = cj.judge_id
@@ -39,31 +40,33 @@ SELECT
        JOIN side s ON s.id = cs.side_id
       WHERE cs.case_id = c.id)                                       AS sides
 FROM "case" c
-WHERE c.uid = '77MS0466-01-2026-003751-93';   -- <-- УИД ЗДЕСЬ
+JOIN court ct ON ct.id = c.court_id
+WHERE c.uid = '77MS0466-01-2026-003751-93'   -- <-- УИД ЗДЕСЬ
+ORDER BY c.id;
 
 
 -- ============================================================================
 -- Запрос 2. Детально: по одной строке на КАЖДУЮ привязанную сущность
---           (тип + значение). УИД задаётся один раз в CTE ниже.
+--           (номер карточки + тип + значение). УИД задаётся один раз в CTE ниже.
 -- ============================================================================
 WITH c AS (
-    SELECT id
+    SELECT id, code, court_id
       FROM "case"
      WHERE uid = '77MS0466-01-2026-003751-93'   -- <-- УИД ЗДЕСЬ
 )
-SELECT 'Суд' AS entity, ct.name || ' (' || ct.code || ')' AS value
+SELECT c.code AS case_code, 'Суд' AS entity, ct.name || ' (' || ct.code || ')' AS value
   FROM c
-  JOIN case_court cc ON cc.case_id = c.id
-  JOIN court ct      ON ct.id = cc.court_id
+  JOIN court ct ON ct.id = c.court_id
 
 UNION ALL
-SELECT 'Судья', j.full_name
+SELECT c.code, 'Судья', j.full_name
   FROM c
   JOIN case_judge cj ON cj.case_id = c.id
   JOIN judge j       ON j.id = cj.judge_id
 
 UNION ALL
 SELECT
+    c.code,
     'Сторона (' ||
     CASE s.type::text
         WHEN 'PLAINTIFF' THEN 'Истец'
@@ -75,10 +78,13 @@ SELECT
   JOIN case_side cs ON cs.case_id = c.id
   JOIN side s       ON s.id = cs.side_id
 
-ORDER BY entity, value;
+ORDER BY case_code, entity, value;
 
 
-        SELECT
+-- ============================================================================
+-- Запрос 3. Все карточки со судом и судьёй — обзор того, что вообще есть в БД.
+-- ============================================================================
+SELECT
     c.id,
     c.uid,
     c.code,
@@ -87,8 +93,7 @@ ORDER BY entity, value;
     ct.name      AS court,
     ct.code      AS court_code
 FROM "case" c
+JOIN court ct           ON ct.id = c.court_id
 LEFT JOIN case_judge cj ON cj.case_id = c.id
 LEFT JOIN judge j       ON j.id = cj.judge_id
-LEFT JOIN case_court cc ON cc.case_id = c.id
-LEFT JOIN court ct      ON ct.id = cc.court_id
 ORDER BY c.id;

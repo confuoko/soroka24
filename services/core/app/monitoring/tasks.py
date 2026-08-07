@@ -1,8 +1,17 @@
 """Celery-таски мониторинга.
 
-sync_case — синхронизация дела по УИД: сходить браузером в суд, найти карточку,
-разобрать её и создать/обновить Case. Тяжёлая часть (Chromium) вынесена из API в
-фоновую задачу; API лишь ставит задачу и отдаёт её id.
+sync_case — синхронизация дела: сходить браузером в суд, найти карточки, разобрать их и
+создать/обновить Case. Тяжёлая часть (Chromium) вынесена из API в фоновую задачу; API
+лишь ставит задачу и отдаёт её id.
+
+Карточек у одной задачи может быть несколько: поиск по УИД отдаёт таблицу, где по одному
+УИД видны и приказное производство, и последовавшее исковое, иногда в разных участках.
+Обходим все строки — карточка это тройка «УИД + суд + номер дела», и каждая строка даёт
+свою. Отказ на одной карточке не уносит остальные.
+
+Суд определяется НЕ по УИД, а по тому же источнику, откуда пришло дело: по номеру участка
+из строки таблицы (поиск по УИД) либо по хосту ссылки. Собрать код суда из УИД нельзя —
+у 36 московских судов номер участка не совпадает с числом в коде.
 
 enqueue_case_resync — поставить дело на повторный парсинг, зная только его id в БД
 (sync_case принимает id задачи, а не дела).
@@ -11,7 +20,9 @@ enqueue_case_resync — поставить дело на повторный па
 Case.diff_history дозаписывается запись о том, что изменилось — в том числе когда
 изменений нет и когда сайт суда не открылся.
 """
+from dataclasses import dataclass
 from datetime import datetime
+from urllib.parse import urlsplit
 
 from celery.exceptions import Retry
 from celery.utils.log import get_task_logger
@@ -22,7 +33,7 @@ from app.celery_app import celery_app
 from app.config import HTML_SNAPSHOT_ENABLED, S3_BUCKET
 from app.courts import (
     CaseNotFound,
-    NewCourtException,
+    FetchedCard,
     UnsupportedCourt,
     define_court_by_uid,
     define_court_by_url,
@@ -46,8 +57,22 @@ from app.repositories import (
     SearchTaskRepository,
 )
 from app.storage import is_failure_key, save_snapshot, snapshot_sha256, url_label
+from app.storage.html_snapshots import card_folder
 
 logger = get_task_logger(__name__)
+
+
+@dataclass(frozen=True)
+class CourtRef:
+    """Суд, вынутый из сессии: только id и код.
+
+    Объект Court живёт в своей session_scope и за её пределами уже недоступен, а суд нужен
+    и дальше — в ключе снапшота и при поиске карточки. Тащить ради этого открытую сессию
+    через весь обход незачем: id и кода хватает.
+    """
+
+    id: int
+    code: str
 
 
 def _log_changes(uid: str, changes: CaseChanges) -> None:
@@ -95,13 +120,20 @@ def _log_changes(uid: str, changes: CaseChanges) -> None:
 
 
 def _take_snapshot(
-    uid: str, html: str, fetched_at: datetime, court_id: int | None = None
+    uid: str,
+    html: str,
+    fetched_at: datetime,
+    court: CourtRef,
+    code: str,
 ) -> tuple[dict | None, bool]:
-    """Положить HTML страницы в S3. Возвращает (данные снапшота, html_unchanged).
+    """Положить HTML карточки в S3. Возвращает (данные снапшота, html_unchanged).
 
     Если разметка побайтово совпала с прошлым разом (тот же sha256), новый объект не
     заливаем — переиспользуем ключ предыдущей записи истории. Это частый случай: дело
     проверяется регулярно, а меняется редко.
+
+    Суд и номер дела обязательны: карточка — это тройка «УИД + суд + номер», и без них
+    нельзя ни найти прошлый снапшот, ни положить новый в папку своей карточки.
 
     Недоступный S3 не должен ронять парсинг: дело важнее архива разметки, поэтому
     ошибку заливки только логируем, а разбор продолжается со snapshot=None.
@@ -111,13 +143,10 @@ def _take_snapshot(
 
     sha = snapshot_sha256(html)
 
-    # Короткое чтение: чем закончился предыдущий парсинг этой карточки. Карточка —
-    # это пара «УИД + суд», поэтому без суда искать нечего (его ещё не определили).
-    previous = None
-    if court_id is not None:
-        with session_scope() as session:
-            case = CaseRepository(session).get_by_uid_and_court(uid, court_id)
-            previous = last_entry(case) if case is not None else None
+    # Короткое чтение: чем закончился предыдущий парсинг ЭТОЙ карточки.
+    with session_scope() as session:
+        case = CaseRepository(session).get_by_uid_court_code(uid, court.id, code)
+        previous = last_entry(case) if case is not None else None
 
     # Ключ переиспользуем только от УСПЕШНОГО парсинга: в последней записи истории теперь
     # может лежать ключ страницы отказа (капча/блокировка), и подставлять его карточке
@@ -135,10 +164,40 @@ def _take_snapshot(
         )
 
     try:
-        return save_snapshot(uid, html, fetched_at), False
+        return (
+            save_snapshot(uid, html, fetched_at, card=card_folder(court.code, code)),
+            False,
+        )
     except Exception as exc:
         logger.warning("Не удалось сохранить снапшот HTML дела %s в S3: %s", uid, exc)
         return None, False
+
+
+def _find_single_card(session, uid: str, court: CourtRef | None, code: str | None):
+    """Карточка дела, к которой относится происходящее, — если она определяется однозначно.
+
+    Номер дела известен не всегда: в ветках ошибок задача успевает узнать суд (а иногда и
+    его не успевает), но до таблицы результатов или до разбора не доходит. Тогда карточку
+    ищем по паре «УИД + суд», и если их там несколько — не выбираем никакую: приписать
+    отказ или расход на капчу случайной карточке хуже, чем не приписать никакой.
+    """
+    if court is None:
+        return None
+
+    cases = CaseRepository(session)
+    if code is not None:
+        return cases.get_by_uid_court_code(uid, court.id, code)
+
+    found = cases.list_by_uid_and_court(uid, court.id)
+    if len(found) > 1:
+        logger.info(
+            "У дела %s в суде %s несколько карточек (%s) — карточка не определена",
+            uid,
+            court.code,
+            ", ".join(case.code for case in found),
+        )
+        return None
+    return found[0] if found else None
 
 
 def _record_parse_entry(
@@ -149,20 +208,22 @@ def _record_parse_entry(
     snapshot: dict | None = None,
     error: str | None = None,
     html_unchanged: bool = False,
-    court_id: int | None = None,
+    court: CourtRef | None = None,
+    code: str | None = None,
 ) -> None:
     """Дозаписать в историю дела запись о неудачном парсинге (если дело уже есть в БД).
 
-    Если дела в БД ещё нет (первый парсинг провалился), дозаписывать некуда — такой
-    провал остаётся в SearchTask (last_error/status).
+    Если дела в БД ещё нет (первый парсинг провалился) или карточка не определяется
+    однозначно, дозаписывать некуда — такой провал остаётся в SearchTask
+    (last_error/status).
     """
-    if court_id is None:
-        # Суд ещё не определён, значит и карточки в БД быть не может.
+    if court is None:
+        # Суд не определён: до таблицы результатов (или до хоста) дело не дошло.
         logger.info("Суд дела %s не определён — запись истории парсинга пропущена", uid)
         return
 
     with session_scope() as session:
-        case = CaseRepository(session).get_by_uid_and_court(uid, court_id)
+        case = _find_single_card(session, uid, court, code)
         if case is None:
             logger.info("Дело %s ещё не создано — запись истории парсинга пропущена", uid)
             return
@@ -253,18 +314,24 @@ def _attach_captcha_costs_to_case(task_id: int, case_id: int) -> None:
         logger.warning("Не удалось привязать расходы задачи %s к делу: %s", task_id, exc)
 
 
-def _attach_captcha_costs(task_id: int, uid: str | None, court_id: int | None) -> None:
+def _attach_captcha_costs(
+    task_id: int, uid: str | None, court: CourtRef | None, code: str | None = None
+) -> None:
     """Привязать расходы задачи к карточке дела, если она уже есть в БД.
 
     Зовём и на успехе, и на отказах: провалившийся обход тоже стоил денег, а карточка
     при повторных обходах обычно уже существует. Если карточки ещё нет (дело качаем
     впервые), расход пока висит только на задаче и привяжется, когда она появится.
+
+    Капчу разгадывают один раз за заход, а карточек из этого захода может выйти несколько
+    (по строке таблицы на каждую) — расход привязываем к первой сохранённой, размазывать
+    его по всем нельзя: деньги списаны однажды.
     """
-    if not uid or court_id is None:
+    if not uid or court is None:
         return
     try:
         with session_scope() as session:
-            case = CaseRepository(session).get_by_uid_and_court(uid, court_id)
+            case = _find_single_card(session, uid, court, code)
             case_id = case.id if case is not None else None
     except Exception as exc:
         logger.warning("Не удалось найти дело для расходов задачи %s: %s", task_id, exc)
@@ -273,17 +340,29 @@ def _attach_captcha_costs(task_id: int, uid: str | None, court_id: int | None) -
         _attach_captcha_costs_to_case(task_id, case_id)
 
 
-def _court_id_for(uid: str | None) -> int | None:
-    """id суда по коду из УИД (первые 8 символов) — или None, если суда нет.
+def _court_by_participok(region_code: str, participok_no: int) -> CourtRef | None:
+    """Суд по номеру участка из таблицы результатов (или None, если его нет в справочнике).
 
-    Карточка — это пара «УИД + суд», поэтому почти всё, что пишется по делу, требует
-    суда: и поиск прошлого снапшота, и запись в историю парсинга.
+    Так определяется суд дела, найденного поиском по УИД. Именно по номеру участка, а не
+    по УИД: у 36 московских судов номер участка не совпадает с числом в коде суда
+    (участок № 463 — это код 77MS0466, а 77MS0463 — совсем другой суд), так что собрать
+    код арифметикой нельзя.
     """
-    if not uid:
-        return None
     with session_scope() as session:
-        court = CourtRepository(session).get_by_code(uid[:8])
-        return court.id if court is not None else None
+        court = CourtRepository(session).get_by_participok(region_code, participok_no)
+        return CourtRef(id=court.id, code=court.code) if court is not None else None
+
+
+def _court_by_url(url: str) -> CourtRef | None:
+    """Суд по хосту ссылки на карточку (или None, если его нет в справочнике).
+
+    Так определяется суд дела, пришедшего ссылкой: на msudrf.ru у каждого участка свой
+    поддомен. Хост известен ещё до похода на портал.
+    """
+    host = (urlsplit(url).hostname or "").lower()
+    with session_scope() as session:
+        court = CourtRepository(session).get_by_host(host)
+        return CourtRef(id=court.id, code=court.code) if court is not None else None
 
 
 def _record_uid(task_id: int, uid: str) -> None:
@@ -317,6 +396,20 @@ def _mark_failed(task_id: int, error: str, page_status: int | None = None) -> No
         task = repo.get(task_id)
         if task is not None:
             repo.mark_failed(task, error, page_status=page_status)
+
+
+def _mark_success(task_id: int, case_id: int) -> None:
+    """Пометить задачу выполненной и привязать к ней карточку.
+
+    Карточка в задаче одна, а вышло их из обхода могло несколько — кладём первую
+    сохранённую. Полный список всегда выводится запросом по УИД, дублировать его в
+    задаче незачем.
+    """
+    with session_scope() as session:
+        repo = SearchTaskRepository(session)
+        task = repo.get(task_id)
+        if task is not None:
+            repo.mark_success(task, case_id)
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=30)
@@ -363,7 +456,18 @@ def _sync_case(celery_task, task_id: int) -> None:
         task_id, celery_task.request.retries, source_url=source_url
     )
 
-    # 2. Долгая часть без БД: сходить браузером в суд за HTML карточки.
+    # Суд дела, пришедшего ссылкой, известен ещё до похода — по хосту. Проверяем сразу:
+    # незачем тратить прокси и капчу на портал, суда которого нет в справочнике.
+    url_court = _court_by_url(source_url) if source_url else None
+    if source_url and url_court is None:
+        _mark_failed(
+            task_id,
+            f"Новый суд, требуется завести справочник: хост "
+            f"{urlsplit(source_url).hostname} не найден",
+        )
+        return
+
+    # 2. Долгая часть без БД: сходить браузером в суд за карточками дела.
     fetched_at = datetime.utcnow()
     try:
         # Прокси арендуем внутри try: если пул пуст при COURT_PROXY_REQUIRED=1,
@@ -373,7 +477,8 @@ def _sync_case(celery_task, task_id: int) -> None:
         if source_url:
             # Портал без поиска по УИД: карточка открывается прямой ссылкой, а УИД
             # мы узнаём уже из неё. Ссылка — постоянный адрес дела, поэтому и первый
-            # разбор, и каждый повторный обход идут этим же путём.
+            # разбор, и каждый повторный обход идут этим же путём. Карточка здесь ровно
+            # одна: открывается тот адрес, который попросили, таблицы результатов нет.
             logger.info("Дело по ссылке %s: идём через прокси %s", source_url, proxy or "напрямую")
             client = define_court_by_url(
                 source_url, proxy=proxy, on_captcha_attempt=on_captcha
@@ -382,34 +487,36 @@ def _sync_case(celery_task, task_id: int) -> None:
             uid = client.extract_uid(html)
             label = uid
             _record_uid(task_id, uid)
+            cards = [FetchedCard(code=client.extract_case_code(html), html=html)]
             logger.info("По ссылке %s найдено дело %s", source_url, uid)
         else:
             logger.info("Дело %s: идём через прокси %s", uid, proxy or "напрямую")
             client = define_court_by_uid(uid, proxy=proxy, on_captcha_attempt=on_captcha)
-            html = client.fetch_case_html_by_uid(uid)
+            # Карточек может быть несколько: по одному УИД портал показывает и приказное
+            # производство, и последовавшее исковое, иногда в разных участках.
+            cards = client.fetch_cases_by_uid(uid)
+            logger.info("По УИД %s найдено карточек: %d", uid, len(cards))
         fetched_at = datetime.utcnow()
     except (UnsupportedCourt, CaseNotFound) as exc:
         # Окончательные ошибки — повторять бессмысленно.
         snapshot, page_status = _save_failure_page(label, exc, fetched_at)
-        failed_court_id = _court_id_for(uid)
         _record_parse_entry(
             label, STATUS_FETCH_ERROR, fetched_at, task_id, snapshot=snapshot,
-            error=str(exc), court_id=failed_court_id,
+            error=str(exc), court=url_court,
         )
         # Капчи по дороге были оплачены, даже если карточку мы так и не получили.
-        _attach_captcha_costs(task_id, uid, failed_court_id)
+        _attach_captcha_costs(task_id, uid, url_court)
         _mark_failed(task_id, str(exc), page_status=page_status)
         return
     except Exception as exc:
         # Временная ошибка (403/timeout/сеть): записать и повторить, пока есть попытки.
         # Запись в историю делаем на каждой попытке — так видно, сколько раз суд не открылся.
         snapshot, page_status = _save_failure_page(label, exc, fetched_at)
-        failed_court_id = _court_id_for(uid)
         _record_parse_entry(
             label, STATUS_FETCH_ERROR, fetched_at, task_id, snapshot=snapshot,
-            error=str(exc), court_id=failed_court_id,
+            error=str(exc), court=url_court,
         )
-        _attach_captcha_costs(task_id, uid, failed_court_id)
+        _attach_captcha_costs(task_id, uid, url_court)
         # Счётчик попыток проверяем САМИ, до вызова retry: если в retry(exc=...) передан exc,
         # то при исчерпании попыток Celery пробрасывает именно его, а не MaxRetriesExceededError
         # (celery/app/task.py: `if max_retries is not None and retries > max_retries` →
@@ -421,49 +528,55 @@ def _sync_case(celery_task, task_id: int) -> None:
         _record_error(task_id, str(exc), page_status=page_status)
         raise celery_task.retry(exc=exc, countdown=30)
 
-    # 2a. Суд определяем ДО снапшота: карточка — это пара «УИД + суд», и без суда
-    #     нельзя ни найти её в БД, ни записать историю парсинга. Заодно неизвестный суд
-    #     обнаруживается сразу, а не после лишней работы.
-    #     Код суда — первые 8 символов УИД (например, 77MS0001).
-    court_id = _court_id_for(uid)
-    if court_id is None:
-        _mark_failed(task_id, f"Новый суд, требуется завести справочник: {uid[:8]}")
-        return
+    # 3. Разбираем и сохраняем каждую найденную карточку.
+    #    Отказ на одной карточке не должен уносить остальные: это разные производства,
+    #    и то, что у одного поехала разметка, к другому отношения не имеет.
+    saved_ids: list[int] = []
+    failures: list[str] = []
 
-    # Расходы на капчу привязываем к карточке сразу, как только известны УИД и суд:
-    # дальше задача ещё может упасть на разборе, а деньги уже потрачены.
-    _attach_captcha_costs(task_id, uid, court_id)
+    for card in cards:
+        # 3a. Суд — из того же источника, что и сама карточка: номер участка из строки
+        #     таблицы либо хост ссылки. Из УИД он НЕ выводится: у 36 московских судов
+        #     номер участка не совпадает с числом в коде суда.
+        court = url_court
+        if court is None and card.participok_no is not None:
+            court = _court_by_participok(uid[:4], card.participok_no)
+        if court is None:
+            failures.append(
+                f"{card.code}: новый суд, требуется завести справочник "
+                f"(участок № {card.participok_no})"
+            )
+            continue
 
-    # 2b. Снапшот HTML — до разбора, чтобы разметка сохранилась даже если парсер упадёт.
-    snapshot, html_unchanged = _take_snapshot(uid, html, fetched_at, court_id=court_id)
-
-    # 2c. Разбор карточки. Ошибка разбора не временная (сломалась разметка или тип
-    #     страницы неизвестен) — ретраить нечего, помечаем задачу проваленной.
-    try:
-        data = client.parse(html)  # состав словаря — в CaseParser.parse
-    except Exception as exc:
-        _record_parse_entry(
-            uid, STATUS_PARSE_ERROR, fetched_at, task_id,
-            snapshot=snapshot, error=str(exc), html_unchanged=html_unchanged,
-            court_id=court_id,
+        # 3b. Снапшот HTML — до разбора, чтобы разметка сохранилась даже если парсер упадёт.
+        snapshot, html_unchanged = _take_snapshot(
+            uid, card.html, fetched_at, court, card.code
         )
-        _mark_failed(task_id, f"Не удалось разобрать страницу: {exc}")
-        return
 
-    # 3. Успех: создать/обновить карточку со сверкой судей/сторон/событий.
-    try:
+        # 3c. Разбор карточки. Ошибка разбора не временная (сломалась разметка или тип
+        #     страницы неизвестен) — ретраить нечего.
+        try:
+            data = client.parse(card.html)  # состав словаря — в CaseParser.parse
+        except Exception as exc:
+            _record_parse_entry(
+                uid, STATUS_PARSE_ERROR, fetched_at, task_id,
+                snapshot=snapshot, error=str(exc), html_unchanged=html_unchanged,
+                court=court, code=card.code,
+            )
+            failures.append(f"{card.code}: не удалось разобрать страницу: {exc}")
+            continue
+
+        # 3d. Создать/обновить карточку со сверкой судей/сторон/событий.
         with session_scope() as session:
-            court = CourtRepository(session).get_by_code(uid[:8])
-            if court is None:
-                raise NewCourtException(uid[:8])
+            court_row = CourtRepository(session).get_by_code(court.code)
 
             # Ссылку, которой завели дело, передаём в разбор: она ляжет в список адресов
             # карточки, и по ней её будут открывать при каждом следующем обходе.
             if source_url:
                 data["url"] = source_url
 
-            changes = update_case(session, uid, data, court)
-            case_id = changes.case.id
+            changes = update_case(session, uid, data, court_row, card.code)
+            saved_ids.append(changes.case.id)
             _log_changes(uid, changes)
 
             # Историю пишем здесь же, до коммита: у удалённых событий и местонахождений
@@ -479,20 +592,21 @@ def _sync_case(celery_task, task_id: int) -> None:
                     html_unchanged=html_unchanged,
                 ),
             )
-    except NewCourtException as exc:
-        # Новый суд — повторять бессмысленно, помечаем задачу проваленной.
-        _mark_failed(task_id, f"Новый суд, требуется завести справочник: {exc}")
+
+    if not saved_ids:
+        # Ни одной карточки — задача провалена; в ошибке перечисляем, что помешало.
+        _mark_failed(task_id, "; ".join(failures) or "Не сохранено ни одной карточки")
         return
+    if failures:
+        logger.warning("Дело %s: часть карточек не сохранена (%s)", uid, "; ".join(failures))
 
-    # Дело качали впервые — на момент разгадки капчи карточки не существовало, поэтому
-    # расходы привязываем теперь, когда она создана. Для повторных обходов это уже
-    # сделано выше и повторный UPDATE ничего не тронет (привязанные строки не меняем).
-    _attach_captcha_costs_to_case(task_id, case_id)
+    # Капчу разгадывали один раз за заход, а карточек из него вышло, возможно, несколько —
+    # расход привязываем к первой сохранённой. Для повторных обходов привязка уже есть, и
+    # повторный UPDATE ничего не тронет (привязанные строки не меняем).
+    _attach_captcha_costs_to_case(task_id, saved_ids[0])
 
-    # Успех фиксируем отдельной транзакцией (первая уже закоммичена).
-    with session_scope() as session:
-        repo = SearchTaskRepository(session)
-        repo.mark_success(repo.get(task_id), case_id)
+    # Успех фиксируем отдельной транзакцией (записи карточек уже закоммичены).
+    _mark_success(task_id, saved_ids[0])
 
 
 def enqueue_case_resync(case_id: int, queue: str = "regular") -> int | None:
@@ -504,6 +618,10 @@ def enqueue_case_resync(case_id: int, queue: str = "regular") -> int | None:
 
     Задачу заводим тем же способом, каким дело попало в систему: есть сохранённая
     ссылка — идём по ней (у таких порталов поиска по УИД нет), иначе по УИД.
+
+    Обратите внимание: задача по УИД обойдёт ВСЕ карточки этого УИД, а не только ту, ради
+    которой её завели, — поиск на портале отдаёт их одной таблицей. Это не лишняя работа:
+    страница всё равно одна, а соседние производства заодно обновятся.
 
     Дедупликации по активным задачам здесь намеренно нет: задача, воркер которой умер
     жёстко, навсегда остаётся в статусе RUNNING, и такая проверка заблокировала бы

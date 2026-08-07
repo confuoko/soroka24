@@ -11,6 +11,8 @@ from app.models.database import Case
 from app.repositories.documents import DocumentRepository, document_uid
 
 CASE_UID = "77MS0002-01-2026-000006-66"
+# Номер дела: часть ключа карточки, поэтому обязателен.
+CASE_CODE = "02-0006/2/2026"
 
 # Как у 77MS0002-01-2026-001597-10: пачка одинаковых приложений плюс отдельные документы.
 PAGE_ROWS = (
@@ -23,7 +25,7 @@ PAGE_ROWS = (
 
 
 def _case(session, court) -> Case:
-    case = Case(uid=CASE_UID, court=court)
+    case = Case(uid=CASE_UID, court=court, code=CASE_CODE)
     session.add(case)
     session.flush()
     return case

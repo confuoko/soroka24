@@ -32,7 +32,11 @@ class CaseSyncResponse(BaseModel):
 
     # exists | processing | invalid_query | invalid_uid | link_required | unsupported_court
     status: str
-    case_id: Optional[int] = None  # заполнен, если дело уже есть в БД
+    # Самая свежая из найденных карточек. Оставлено ради совместимости: по одному УИД
+    # карточек бывает несколько (разные суды и производства), полный список — в case_ids.
+    case_id: Optional[int] = None
+    # Все карточки этого УИД, по возрастанию id. Заполняется при status=exists.
+    case_ids: Optional[list[int]] = None
     task_id: Optional[int] = None  # заполнен, если запущена фоновая синхронизация
     # Пояснение для пользователя, когда запрос отклонён: какой суд определился и что
     # с этим делать. Заполняется у link_required и unsupported_court.

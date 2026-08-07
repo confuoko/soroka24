@@ -181,6 +181,70 @@ def test_unknown_court_says_so(monkeypatch) -> None:
     assert "99XX9999" in answer.message
 
 
+# --------------------------------------------- по одному УИД карточек может быть много
+def test_existing_cases_are_all_returned(monkeypatch) -> None:
+    """Дело уже в БД → отдаём ВСЕ его карточки, а не одну.
+
+    По одному УИД карточек бывает несколько: разные суды (дело шло по инстанциям) и
+    разные производства в одном суде. Раньше ответ содержал только одну, и остальные
+    пользователь не видел вовсе.
+    """
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from fastapi import Response
+
+    from app.api import routes
+
+    cards = [
+        SimpleNamespace(id=11, updated_at=datetime(2026, 8, 1)),
+        SimpleNamespace(id=12, updated_at=datetime(2026, 8, 5)),
+    ]
+    monkeypatch.setattr(
+        routes,
+        "CaseRepository",
+        lambda session: SimpleNamespace(list_by_uid=lambda uid: cards),
+    )
+
+    answer = routes._sync_by_uid(MOSCOW_UID, force=False, response=Response())
+
+    assert answer.status == "exists"
+    assert answer.case_ids == [11, 12]
+    # case_id остаётся ради совместимости и указывает на самую свежую карточку.
+    assert answer.case_id == 12
+
+
+def test_unknown_host_is_rejected_before_going_to_the_portal(monkeypatch) -> None:
+    """Суда с таким сайтом нет в справочнике → отказ сразу, задачу не заводим.
+
+    Поход на портал занимает полминуты и стоит капчи, а без суда карточку всё равно
+    не сохранить.
+    """
+    from types import SimpleNamespace
+
+    from fastapi import Response
+
+    from app.api import routes
+
+    monkeypatch.setattr(
+        routes,
+        "CourtRepository",
+        lambda session: SimpleNamespace(get_by_host=lambda host: None),
+    )
+    monkeypatch.setattr(
+        routes,
+        "SearchTaskRepository",
+        lambda session: SimpleNamespace(
+            create=lambda **kw: pytest.fail("задачу заводить не должны")
+        ),
+    )
+
+    answer = routes._sync_by_url(CASE_URL, force=False, response=Response())
+
+    assert answer.status == "unsupported_court"
+    assert "95.mo.msudrf.ru" in answer.message
+
+
 def test_example_link_is_a_real_case_url() -> None:
     """Пример должен быть настоящим адресом карточки, а не выдумкой.
 

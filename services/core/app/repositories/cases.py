@@ -13,8 +13,10 @@ from app.validators import canonical_case_url
 # url здесь намеренно нет: адресов у карточки несколько, они лежат в CaseUrl. Пока url
 # был полем, каждая новая ссылка перезаписывала предыдущую и попадала в историю дела
 # как «изменение» — пользователю такое видеть незачем.
+# code здесь тоже нет, и это важно: номер дела входит в ключ карточки, поэтому изменение
+# номера означает ДРУГУЮ карточку, а не изменение этой. Если вернуть его сюда, обход будет
+# переименовывать существующую карточку вместо того, чтобы завести новую.
 _UPDATABLE_FIELDS = (
-    "code",
     "application_number",
     "incoming_number",
     "receipt_date",
@@ -43,20 +45,39 @@ class CaseRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def get_by_uid_and_court(self, uid: str, court_id: int) -> Optional[Case]:
-        """Найти карточку дела по паре «УИД + суд» (или None).
+    def get_by_uid_court_code(
+        self, uid: str, court_id: int, code: str
+    ) -> Optional[Case]:
+        """Найти карточку дела по тройке «УИД + суд + номер дела» (или None).
 
-        Основной способ найти карточку: сам по себе УИД не уникален — тот же УИД в
-        другом суде это другая карточка (другая инстанция).
+        Основной способ найти карточку: ни УИД сам по себе, ни пара с судом не уникальны —
+        тот же УИД в другом суде это другая инстанция, а тот же УИД в том же суде с другим
+        номером — другое производство (приказное, затем исковое).
         """
         return self._session.scalar(
-            select(Case).where(Case.uid == uid, Case.court_id == court_id)
+            select(Case).where(
+                Case.uid == uid, Case.court_id == court_id, Case.code == code
+            )
         )
 
     def list_by_uid(self, uid: str) -> list[Case]:
-        """Все карточки с этим УИД — по одной на суд, через который прошло дело."""
+        """Все карточки с этим УИД — по всем судам и производствам."""
         return list(
             self._session.scalars(select(Case).where(Case.uid == uid).order_by(Case.id))
+        )
+
+    def list_by_uid_and_court(self, uid: str, court_id: int) -> list[Case]:
+        """Карточки этого УИД в этом суде — по одной на производство.
+
+        Нужно там, где номер дела неизвестен: в ветках ошибок задача успевает узнать суд,
+        но не номер (страница не открылась или не разобралась).
+        """
+        return list(
+            self._session.scalars(
+                select(Case)
+                .where(Case.uid == uid, Case.court_id == court_id)
+                .order_by(Case.id)
+            )
         )
 
     def get_full(self, case_id: int) -> Optional[Case]:
@@ -145,10 +166,10 @@ class CaseRepository:
         )
         return best.url
 
-    def upsert_by_uid_and_court(
-        self, uid: str, court: Court, data: dict
+    def upsert_by_uid_court_code(
+        self, uid: str, court: Court, code: str, data: dict
     ) -> tuple[Case, list[CaseFieldChange]]:
-        """Найти карточку по паре «УИД + суд» или создать новую; обновить поля из data.
+        """Найти карточку по тройке «УИД + суд + номер» или создать новую; обновить поля.
 
         Возвращает (дело, список изменившихся полей). По этому списку строится дифф:
         смена «Текущего состояния», появление решения первой инстанции и т.п. должны быть
@@ -156,11 +177,16 @@ class CaseRepository:
 
         У НОВОГО дела список всегда пустой: появление дела — само по себе событие, и
         засорять дифф переходами None → значение по каждому полю не нужно.
+
+        Номер приходит отдельным аргументом, а не в data: его источник — таблица
+        результатов поиска, а не карточка. Значение code из data (если парсер его отдал)
+        сюда не попадает, см. _UPDATABLE_FIELDS.
         """
-        case = self.get_by_uid_and_court(uid, court.id)
+        case = self.get_by_uid_court_code(uid, court.id, code)
         is_new = case is None
         if case is None:
-            case = Case(uid=uid, court=court)
+            # code задаём сразу при создании: он NOT NULL, а flush() ниже не должен упасть.
+            case = Case(uid=uid, court=court, code=code)
             self._session.add(case)
 
         # Обновляем только те поля, что реально пришли от парсера. Парсер отдаёт ВСЕ

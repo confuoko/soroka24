@@ -24,13 +24,30 @@ CARD_HTML = "<html><body>карточка дела</body></html>"
 
 
 # --------------------------------------------------------------- заглушка браузера
+class _StubLink:
+    """Ссылка на карточку в таблице результатов: номер дела и участок из href."""
+
+    def __init__(self, code: str, participok_no: int) -> None:
+        self._code = code
+        self._href = f"/{participok_no}/cases/admin/details/stub?uid=x&formType=fullForm"
+
+    def inner_text(self) -> str:
+        return self._code
+
+    def get_attribute(self, name: str) -> str:
+        return self._href if name == "href" else ""
+
+
 class _StubPage:
-    def __init__(self, url: str, link_count: int) -> None:
+    def __init__(self, url: str, links: list[_StubLink]) -> None:
         self.url = url
-        self._link_count = link_count
+        self._links = links
 
     def locator(self, selector: str):
-        return SimpleNamespace(count=lambda: self._link_count, first=object())
+        return SimpleNamespace(
+            count=lambda: len(self._links),
+            nth=lambda index: self._links[index],
+        )
 
 
 class _StubSession:
@@ -43,13 +60,18 @@ class _StubSession:
         link_count: int = 1,
         results_status: int | None = None,
         card_status: int | None = 200,
+        links: list[_StubLink] | None = None,
     ) -> None:
         self.fail_on = fail_on
         self.status = status
         # Статусы отдельных шагов: страница поиска -> выдача -> карточка дела.
         self.results_status = results_status
         self.card_status = card_status
-        self.page = _StubPage("https://mos-sud.ru/search", link_count)
+        # По умолчанию — link_count одинаковых строк таблицы; links задаёт их явно,
+        # когда в тесте важны конкретные номера дел и участков.
+        if links is None:
+            links = [_StubLink(f"05-{i:04d}/2/2026", 2) for i in range(link_count)]
+        self.page = _StubPage("https://mos-sud.ru/search", links)
 
     def __enter__(self) -> "_StubSession":
         return self
@@ -102,7 +124,7 @@ def test_fetch_failure_carries_page_snapshot(stub_browser) -> None:
     stub_browser(fail_on="fill", status=200)
 
     with pytest.raises(FetchFailed) as caught:
-        moscow_mir_court.MoscowMirCourtClient().fetch_case_html_by_uid(CASE_UID)
+        moscow_mir_court.MoscowMirCourtClient().fetch_cases_by_uid(CASE_UID)
 
     page = caught.value.page
     assert page.html == CAPTCHA_HTML
@@ -116,7 +138,7 @@ def test_case_not_found_carries_page_snapshot(stub_browser) -> None:
     stub_browser(link_count=0)
 
     with pytest.raises(CaseNotFound) as caught:
-        moscow_mir_court.MoscowMirCourtClient().fetch_case_html_by_uid(CASE_UID)
+        moscow_mir_court.MoscowMirCourtClient().fetch_cases_by_uid(CASE_UID)
 
     assert caught.value.page.html == CAPTCHA_HTML
 
@@ -125,7 +147,11 @@ def test_successful_fetch_returns_card_and_raises_nothing(stub_browser) -> None:
     """Когда всё хорошо — обычный HTML карточки, никаких снимков отказа."""
     stub_browser()
 
-    assert moscow_mir_court.MoscowMirCourtClient().fetch_case_html_by_uid(CASE_UID) == CARD_HTML
+    cards = moscow_mir_court.MoscowMirCourtClient().fetch_cases_by_uid(CASE_UID)
+
+    assert [c.html for c in cards] == [CARD_HTML]
+    assert cards[0].code == "05-0000/2/2026"
+    assert cards[0].participok_no == 2
 
 
 # ------------------------------------------- ошибка портала должна быть ретраибельной
@@ -140,7 +166,7 @@ def test_search_page_error_fails_fast(stub_browser, status) -> None:
     stub_browser(fail_on="fill", status=status)
 
     with pytest.raises(FetchFailed) as caught:
-        moscow_mir_court.MoscowMirCourtClient().fetch_case_html_by_uid(CASE_UID)
+        moscow_mir_court.MoscowMirCourtClient().fetch_cases_by_uid(CASE_UID)
 
     assert caught.value.page.status == status
     assert not isinstance(caught.value.reason, TimeoutError)
@@ -156,7 +182,7 @@ def test_results_page_error_is_not_mistaken_for_case_not_found(stub_browser) -> 
     stub_browser(status=200, results_status=500, link_count=0)
 
     with pytest.raises(FetchFailed) as caught:
-        moscow_mir_court.MoscowMirCourtClient().fetch_case_html_by_uid(CASE_UID)
+        moscow_mir_court.MoscowMirCourtClient().fetch_cases_by_uid(CASE_UID)
 
     assert caught.value.page.status == 500
 
@@ -170,7 +196,7 @@ def test_card_page_error_does_not_reach_parser(stub_browser) -> None:
     stub_browser(card_status=503)
 
     with pytest.raises(FetchFailed) as caught:
-        moscow_mir_court.MoscowMirCourtClient().fetch_case_html_by_uid(CASE_UID)
+        moscow_mir_court.MoscowMirCourtClient().fetch_cases_by_uid(CASE_UID)
 
     assert caught.value.page.status == 503
     assert caught.value.page.html == CARD_HTML
@@ -182,9 +208,10 @@ def recorded_uploads(monkeypatch):
     """Перехватить save_snapshot: в S3 в тестах не пишем, только фиксируем вызовы."""
     calls = []
 
-    def _fake_save(uid, html, fetched_at, failed=False):
-        key = f"html_snapshots/{uid}/{'failed/' if failed else ''}{uid}_stub.html.gz"
-        calls.append({"uid": uid, "html": html, "failed": failed, "key": key})
+    def _fake_save(uid, html, fetched_at, failed=False, card=None):
+        folder = "failed/" if failed else (f"{card}/" if card else "")
+        key = f"html_snapshots/{uid}/{folder}{uid}_stub.html.gz"
+        calls.append({"uid": uid, "html": html, "failed": failed, "card": card, "key": key})
         return {"html_bucket": "soroka", "html_key": key, "html_sha256": "sha", "html_size": len(html)}
 
     monkeypatch.setattr(tasks, "save_snapshot", _fake_save)
@@ -231,7 +258,7 @@ def test_failure_page_goes_to_failed_subfolder(task_id, recorded_uploads, monkey
         tasks,
         "define_court_by_uid",
         lambda uid, proxy=None, **kwargs: SimpleNamespace(
-            fetch_case_html_by_uid=lambda _: (_ for _ in ()).throw(failure)
+            fetch_cases_by_uid=lambda _: (_ for _ in ()).throw(failure)
         ),
     )
 
@@ -272,11 +299,19 @@ def previous_entry(monkeypatch):
         monkeypatch.setattr(
             tasks,
             "CaseRepository",
-            lambda session: SimpleNamespace(get_by_uid_and_court=lambda uid, court_id: object()),
+            lambda session: SimpleNamespace(
+                get_by_uid_court_code=lambda uid, court_id, code: object()
+            ),
         )
         monkeypatch.setattr(tasks, "last_entry", lambda case: entry)
 
     return _install
+
+
+# Суд карточки: в этих тестах важно только то, что он есть — от него берётся код для
+# папки снапшота.
+STUB_COURT = tasks.CourtRef(id=1, code="77MS0002")
+STUB_CODE = "05-0444/2/2026"
 
 
 def test_snapshot_key_reused_after_successful_parse(previous_entry, recorded_uploads) -> None:
@@ -292,7 +327,7 @@ def test_snapshot_key_reused_after_successful_parse(previous_entry, recorded_upl
     )
 
     snapshot, unchanged = tasks._take_snapshot(
-        CASE_UID, CARD_HTML, datetime(2026, 8, 4, 16, 0, 0), court_id=1
+        CASE_UID, CARD_HTML, datetime(2026, 8, 4, 16, 0, 0), STUB_COURT, STUB_CODE
     )
 
     assert unchanged is True
@@ -315,7 +350,7 @@ def test_failure_key_is_never_reused_for_a_card(previous_entry, recorded_uploads
     )
 
     snapshot, unchanged = tasks._take_snapshot(
-        CASE_UID, CARD_HTML, datetime(2026, 8, 4, 16, 0, 0), court_id=1
+        CASE_UID, CARD_HTML, datetime(2026, 8, 4, 16, 0, 0), STUB_COURT, STUB_CODE
     )
 
     assert unchanged is False

@@ -62,18 +62,22 @@ def _sync_by_uid(uid: str, force: bool, response: Response) -> CaseSyncResponse:
     with session_scope() as session:
         cases = CaseRepository(session)
         tasks = SearchTaskRepository(session)
-        # Карточка — это пара «УИД + суд»; код суда лежит в первых 8 символах УИД.
-        court = CourtRepository(session).get_by_code(uid[:8])
 
-        # 3. Карточка уже в БД — сразу отдаём её id.
+        # 3. Карточки уже в БД — сразу отдаём их id.
+        #    Ищем по одному УИД, без суда: суд определяется по номеру участка из таблицы
+        #    результатов, а до портала мы здесь не ходим. Карточек может быть несколько —
+        #    разные суды (дело шло по инстанциям) и разные производства в одном суде.
         #    С force=true не выходим, а идём парсить заново: так наполняется история
         #    diff'ов (Case.diff_history) и подтягиваются свежие события.
-        existing_case = (
-            cases.get_by_uid_and_court(uid, court.id) if court is not None else None
-        )
-        if existing_case is not None and not force:
+        existing_cases = cases.list_by_uid(uid)
+        if existing_cases and not force:
             response.status_code = status.HTTP_200_OK
-            return CaseSyncResponse(status="exists", case_id=existing_case.id)
+            newest = max(existing_cases, key=lambda case: case.updated_at)
+            return CaseSyncResponse(
+                status="exists",
+                case_id=newest.id,
+                case_ids=[case.id for case in existing_cases],
+            )
 
         # 4. Уже есть незавершённая задача по этому УИД — отдаём её (без дублей).
         active_task = tasks.get_active_by_uid(uid)
@@ -92,6 +96,10 @@ def _explain_uid_not_searchable(uid: str) -> CaseSyncResponse:
     Первые 8 символов УИД — код суда в справочнике, так что суд мы почти всегда можем
     назвать по имени, даже когда искать по УИД у него нельзя. Без такого пояснения
     ответ выглядел бы как «суд не поддержан», хотя дело прекрасно достаётся ссылкой.
+
+    Это единственное место, где по УИД ищется суд, и здесь это допустимо: имя нужно
+    только для текста ошибки. Суд КАРТОЧКИ так определять нельзя — для этого есть номер
+    участка из таблицы результатов и хост ссылки (см. app/monitoring/tasks.py).
     """
     code = uid[:8]
     with session_scope() as session:
@@ -133,17 +141,33 @@ def _sync_by_url(url: str, force: bool, response: Response) -> CaseSyncResponse:
             message=f"Портал {urlsplit(url).hostname} пока не поддержан.",
         )
 
+    host = (urlsplit(url).hostname or "").lower()
+
     with session_scope() as session:
         cases = CaseRepository(session)
         tasks = SearchTaskRepository(session)
 
-        # 2. Карточка с этой ссылкой уже разобрана — отдаём её id (адрес уникален).
+        # 2. Суд определяется по хосту ссылки, и он известен уже здесь. Проверяем сразу:
+        #    поход на портал занимает полминуты и стоит капчи, а без суда в справочнике
+        #    карточку всё равно не сохранить.
+        if CourtRepository(session).get_by_host(host) is None:
+            response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+            return CaseSyncResponse(
+                status="unsupported_court",
+                message=f"Суда с сайтом {host} нет в справочнике судов.",
+            )
+
+        # 3. Карточка с этой ссылкой уже разобрана — отдаём её id (адрес уникален).
         existing_case = cases.get_by_url(url)
         if existing_case is not None and not force:
             response.status_code = status.HTTP_200_OK
-            return CaseSyncResponse(status="exists", case_id=existing_case.id)
+            return CaseSyncResponse(
+                status="exists",
+                case_id=existing_case.id,
+                case_ids=[existing_case.id],
+            )
 
-        # 3. По этой же ссылке уже идёт задача — отдаём её, дубль не заводим.
+        # 4. По этой же ссылке уже идёт задача — отдаём её, дубль не заводим.
         active_task = tasks.get_active_by_url(url)
         if active_task is not None:
             return CaseSyncResponse(status="processing", task_id=active_task.id)
