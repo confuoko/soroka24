@@ -1,13 +1,18 @@
-"""Определение суда: по УИД дела или по ссылке на его карточку.
+"""Выбор клиента суда: по УИД дела или по ссылке на его карточку.
+
+Речь именно о КЛИЕНТЕ — о том, каким кодом идти на портал. Сам суд карточки определяется
+не здесь, а по справочнику (app/repositories/courts.py): по номеру участка из таблицы
+результатов либо по хосту ссылки.
 
 Два способа, потому что порталы устроены по-разному:
 
-* по УИД — там, где на портале есть поиск по нему (Москва, mos-sud.ru);
-* по ссылке — там, где поиска нет, зато карточка открывается по прямому адресу
-  (msudrf.ru и большинство региональных порталов).
+* по УИД — там, где на портале есть поиск по нему: мировые суды Москвы (mos-sud.ru);
+* по ссылке — там, где поиска нет, зато карточка открывается по прямому адресу:
+  мировые суды Московской области (*.mo.msudrf.ru).
 
-Чтобы добавить новый суд — допиши строку в COURT_BY_PREFIX (префикс УИД -> клиент)
-или в COURT_BY_DOMAIN (домен портала -> клиент).
+Больше пока ничего: остальные регионы либо на других движках, либо на том же msudrf.ru,
+но с непроверенной разметкой. Чтобы добавить регион — допиши строку в COURT_BY_PREFIX
+(префикс УИД -> клиент) или в COURT_BY_DOMAIN (домен портала -> клиент).
 """
 from urllib.parse import urlsplit
 
@@ -15,7 +20,7 @@ from app.browser import ProxySettings
 from app.captcha import AttemptSink
 from app.courts.base import CourtClient, UnsupportedCourt
 from app.courts.moscow_mir_court import MoscowMirCourtClient
-from app.courts.msudrf_court import DOMAIN as MSUDRF_DOMAIN
+from app.courts.msudrf_court import MO_DOMAIN
 from app.courts.msudrf_court import MsudrfCourtClient
 
 # Соответствие: префикс УИД -> класс клиента суда.
@@ -26,9 +31,9 @@ COURT_BY_PREFIX = {
 }
 
 # Соответствие: домен портала -> класс клиента суда. Совпадение по концу имени хоста,
-# поэтому одна строка накрывает все поддомены (95.mo.msudrf.ru, 1.bkr.msudrf.ru, ...).
+# поэтому одна строка накрывает все поддомены региона (95.mo.msudrf.ru, 148.mo.msudrf.ru).
 COURT_BY_DOMAIN = {
-    MSUDRF_DOMAIN: MsudrfCourtClient,  # 6063 мировых суда из 72 регионов
+    MO_DOMAIN: MsudrfCourtClient,  # 374 мировых суда Московской области
 }
 
 

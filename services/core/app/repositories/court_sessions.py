@@ -13,11 +13,15 @@ from app.models.database import Case, CourtSession
 COURT_SESSION_UID_NAMESPACE = uuid.UUID("9c4e7a10-2f83-5b6d-a1c7-4e0d9f5b3a26")
 
 
-def court_session_uid(case_uid: str, session_at: datetime, stage: str) -> uuid.UUID:
+def court_session_uid(card_key: str, session_at: datetime, stage: str) -> uuid.UUID:
     """
     Детерминированный uid заседания из обязательных (identity) полей.
 
-    identity = дело + дата-время заседания + стадия.
+    identity = карточка + дата-время заседания + стадия.
+
+    КАРТОЧКА, а не дело: card_key — это «УИД | код суда | номер дела»
+    (Case.card_key). По одному УИД карточек бывает несколько, а uid здесь уникален
+    глобально — считай мы его от УИД, строки соседних карточек столкнулись бы.
 
     Время входит в identity намеренно: у одного дела бывает несколько заседаний одной
     стадии, и без времени два заседания в один день дали бы один uid — то есть второе
@@ -28,7 +32,7 @@ def court_session_uid(case_uid: str, session_at: datetime, stage: str) -> uuid.U
     ещё нет, потом он появляется), и их правка должна детектиться как UPDATE той же
     строки, а не как новое заседание.
     """
-    key = "|".join([case_uid, session_at.isoformat(), stage])
+    key = "|".join([card_key, session_at.isoformat(), stage])
     return uuid.uuid5(COURT_SESSION_UID_NAMESPACE, key)
 
 
@@ -61,7 +65,7 @@ class CourtSessionRepository:
         # 1. Проход по заседаниям, которые есть на актуальной странице
         for item in sessions_data:
             # Определяем uid заседания
-            uid = court_session_uid(case.uid, item["session_date"], item["stage"])
+            uid = court_session_uid(case.card_key, item["session_date"], item["stage"])
             # Портал может отдать две одинаковые строки — считаем их одним заседанием.
             # Обработать вторую нельзя: uid у неё тот же, и UNIQUE ix_court_session_uid
             # уронит commit вместе со всей транзакцией дела.

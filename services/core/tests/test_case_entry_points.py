@@ -51,10 +51,32 @@ def test_garbage_is_not_a_valid_url() -> None:
 
 
 # ------------------------------------------------------------------- резолвер судов
-def test_url_resolves_to_msudrf_client() -> None:
-    """Любой поддомен msudrf.ru обслуживает один клиент — движок у них общий."""
-    for url in (CASE_URL, "http://1.bkr.msudrf.ru/x", "https://maikop1.adg.msudrf.ru/y"):
+def test_moscow_region_url_resolves_to_msudrf_client() -> None:
+    """Любой участок Московской области обслуживает один клиент — движок у них общий."""
+    for url in (CASE_URL, "http://148.mo.msudrf.ru/x", "https://235.mo.msudrf.ru/y"):
         assert isinstance(define_court_by_url(url), MsudrfCourtClient)
+
+
+def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
+    """Тот же движок в чужом регионе пока не обслуживаем.
+
+    Движок общий для 71 региона, но разметку мы смотрели только на Московской области,
+    поэтому обещать остальные 5690 судов, ни разу их не открыв, нельзя. Подключается
+    регион одной строкой в COURT_BY_DOMAIN — когда его разметку проверят.
+    """
+    for url in ("http://1.bkr.msudrf.ru/x", "https://maikop1.adg.msudrf.ru/y"):
+        assert is_supported_url(url) is False
+        with pytest.raises(UnsupportedCourt):
+            define_court_by_url(url)
+
+
+def test_domain_boundary_is_respected_for_the_region() -> None:
+    """«evil-mo.msudrf.ru» — не Московская область: сравниваем по границе имени.
+
+    Без проверки границы дефис перед «mo» проскочил бы, и браузер (через прокси и с
+    игнором сертификата) пошёл бы на чужой хост.
+    """
+    assert is_supported_url("https://evil-mo.msudrf.ru/case") is False
 
 
 def test_lookalike_domain_is_rejected() -> None:
@@ -182,43 +204,111 @@ def test_unknown_court_says_so(monkeypatch) -> None:
 
 
 # --------------------------------------------- по одному УИД карточек может быть много
-def test_existing_cases_are_all_returned(monkeypatch) -> None:
-    """Дело уже в БД → отдаём ВСЕ его карточки, а не одну.
+def _stub_uid_branch(monkeypatch, cards, active_task=None):
+    """Подменить БД для ветки по УИД. Возвращает (routes, список созданных задач)."""
+    from types import SimpleNamespace
 
-    По одному УИД карточек бывает несколько: разные суды (дело шло по инстанциям) и
-    разные производства в одном суде. Раньше ответ содержал только одну, и остальные
-    пользователь не видел вовсе.
+    from app.api import routes
+
+    created = []
+    monkeypatch.setattr(
+        routes,
+        "CaseRepository",
+        lambda session: SimpleNamespace(list_by_uid=lambda uid: cards),
+    )
+    monkeypatch.setattr(
+        routes,
+        "SearchTaskRepository",
+        lambda session: SimpleNamespace(
+            get_active_by_uid=lambda uid: active_task,
+            create=lambda **kw: created.append(kw) or SimpleNamespace(id=777),
+        ),
+    )
+    # В очередь в тестах не ставим: Celery здесь не нужен.
+    monkeypatch.setattr(routes.sync_case, "apply_async", lambda *a, **kw: None)
+    return routes, created
+
+
+def test_search_is_started_even_when_cases_are_already_found(monkeypatch) -> None:
+    """Дело уже в БД → всё равно ставим поиск, а найденное отдаём вместе с task_id.
+
+    УИД сквозной, поэтому найденные карточки могли прийти ссылками со страниц других
+    инстанций — московской среди них может не быть вовсе. А если есть, рядом могло
+    появиться ещё одно производство: портал показывает их одной таблицей.
     """
     from datetime import datetime
     from types import SimpleNamespace
 
     from fastapi import Response
 
-    from app.api import routes
-
     cards = [
         SimpleNamespace(id=11, updated_at=datetime(2026, 8, 1)),
         SimpleNamespace(id=12, updated_at=datetime(2026, 8, 5)),
     ]
-    monkeypatch.setattr(
-        routes,
-        "CaseRepository",
-        lambda session: SimpleNamespace(list_by_uid=lambda uid: cards),
+    routes, created = _stub_uid_branch(monkeypatch, cards)
+
+    answer = routes._sync_by_uid(MOSCOW_UID, force=False, response=Response())
+
+    assert answer.status == "processing"
+    assert answer.task_id == 777
+    assert created == [{"uid": MOSCOW_UID}]  # поиск заведён, несмотря на находки
+    # Отдаём ВСЕ найденные карточки; case_id — самая свежая, ради совместимости.
+    assert answer.case_ids == [11, 12]
+    assert answer.case_id == 12
+
+
+def test_nothing_found_still_returns_a_task(monkeypatch) -> None:
+    """Дела в БД нет → обычный ответ с задачей и пустыми ссылками на карточки."""
+    from fastapi import Response
+
+    routes, created = _stub_uid_branch(monkeypatch, cards=[])
+
+    answer = routes._sync_by_uid(MOSCOW_UID, force=False, response=Response())
+
+    assert answer.status == "processing"
+    assert answer.case_ids is None
+    assert answer.case_id is None
+    assert created == [{"uid": MOSCOW_UID}]
+
+
+def test_active_task_is_not_duplicated_but_still_reports_cases(monkeypatch) -> None:
+    """По этому УИД уже идёт задача → отдаём её, второй не заводим, карточки показываем."""
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from fastapi import Response
+
+    cards = [SimpleNamespace(id=11, updated_at=datetime(2026, 8, 1))]
+    routes, created = _stub_uid_branch(
+        monkeypatch, cards, active_task=SimpleNamespace(id=555)
     )
 
     answer = routes._sync_by_uid(MOSCOW_UID, force=False, response=Response())
 
-    assert answer.status == "exists"
-    assert answer.case_ids == [11, 12]
-    # case_id остаётся ради совместимости и указывает на самую свежую карточку.
-    assert answer.case_id == 12
+    assert answer.task_id == 555
+    assert created == []
+    assert answer.case_ids == [11]
 
 
-def test_unknown_host_is_rejected_before_going_to_the_portal(monkeypatch) -> None:
+def _no_tasks(monkeypatch, routes) -> None:
+    """Задача в этом тесте заводиться не должна — поймаем, если всё же заведётся."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        routes,
+        "SearchTaskRepository",
+        lambda session: SimpleNamespace(
+            create=lambda **kw: pytest.fail("задачу заводить не должны")
+        ),
+    )
+
+
+def test_unknown_court_is_rejected_before_checking_the_portal(monkeypatch) -> None:
     """Суда с таким сайтом нет в справочнике → отказ сразу, задачу не заводим.
 
-    Поход на портал занимает полминуты и стоит капчи, а без суда карточку всё равно
-    не сохранить.
+    Справочник проверяется ПЕРВЫМ: если суда нет, неважно, умеем ли мы работать с его
+    порталом — карточку всё равно не к чему привязать. Поэтому даже для поддержанного
+    msudrf.ru ответ здесь про справочник, а не про портал.
     """
     from types import SimpleNamespace
 
@@ -232,17 +322,47 @@ def test_unknown_host_is_rejected_before_going_to_the_portal(monkeypatch) -> Non
         lambda session: SimpleNamespace(get_by_host=lambda host: None),
     )
     monkeypatch.setattr(
-        routes,
-        "SearchTaskRepository",
-        lambda session: SimpleNamespace(
-            create=lambda **kw: pytest.fail("задачу заводить не должны")
-        ),
+        routes, "is_supported_url", lambda url: pytest.fail("портал проверять рано")
     )
+    _no_tasks(monkeypatch, routes)
 
     answer = routes._sync_by_url(CASE_URL, force=False, response=Response())
 
     assert answer.status == "unsupported_court"
+    assert "нет в справочнике" in answer.message
     assert "95.mo.msudrf.ru" in answer.message
+
+
+def test_known_court_on_unsupported_portal_is_named(monkeypatch) -> None:
+    """Суд нашёлся, а клиента к его порталу нет → называем суд по имени.
+
+    В справочнике 85 регионов со своими порталами, а клиент пока только к движку
+    msudrf.ru. Без имени суда ответ выглядел бы как «мы вас не знаем», хотя суд-то
+    известен — не поддержан именно его сайт.
+    """
+    from types import SimpleNamespace
+
+    from fastapi import Response
+
+    from app.api import routes
+
+    monkeypatch.setattr(
+        routes,
+        "CourtRepository",
+        lambda session: SimpleNamespace(
+            get_by_host=lambda host: SimpleNamespace(name="Судебный участок № 154")
+        ),
+    )
+    monkeypatch.setattr(routes, "is_supported_url", lambda url: False)
+    _no_tasks(monkeypatch, routes)
+
+    answer = routes._sync_by_url(
+        "https://mirsud.spb.ru/court-sites/154/case", force=False, response=Response()
+    )
+
+    assert answer.status == "unsupported_court"
+    assert "Судебный участок № 154" in answer.message
+    assert "mirsud.spb.ru" in answer.message
 
 
 def test_example_link_is_a_real_case_url() -> None:

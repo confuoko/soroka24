@@ -19,11 +19,31 @@ DUPLICATE_EVENTS = [
 ]
 
 
-def _case(session, court) -> Case:
-    case = Case(uid=CASE_UID, court=court, code=CASE_CODE)
+def _case(session, court, code: str = CASE_CODE) -> Case:
+    case = Case(uid=CASE_UID, court=court, code=code)
     session.add(case)
     session.flush()
     return case
+
+
+def test_same_event_on_two_cards_of_one_uid(session, court) -> None:
+    """Одинаковое событие у двух карточек одного УИД сохраняется у обеих.
+
+    Регрессия на живой отказ: uid события считался от УИД дела, а индекс на нём глобальный
+    — вторая карточка того же УИД (другое производство в том же суде) падала на
+    ix_event_uid, и вся её транзакция откатывалась. Теперь uid считается от карточки.
+    """
+    first = _case(session, court, code="02-0002/2/2026")
+    second = _case(session, court, code="02-0777/2/2026")
+    same_event = [{"event_date": date(2026, 6, 8), "state_description": "Завершено"}]
+
+    repo = EventRepository(session)
+    repo.sync_events(first, same_event)
+    repo.sync_events(second, same_event)
+    session.flush()
+
+    assert first.events[0].uid != second.events[0].uid
+    assert len(first.events) == 1 and len(second.events) == 1
 
 
 def test_duplicate_events_collapsed_into_one(session, court) -> None:
@@ -39,7 +59,9 @@ def test_duplicate_events_collapsed_into_one(session, court) -> None:
     session.flush()
 
     assert len(case.events) == 1
-    assert case.events[0].uid == event_uid(CASE_UID, date(2026, 6, 8), "Завершено")
+    assert case.events[0].uid == event_uid(
+        case.card_key, date(2026, 6, 8), "Завершено"
+    )
 
 
 def test_second_sync_of_same_page_changes_nothing(session, court) -> None:

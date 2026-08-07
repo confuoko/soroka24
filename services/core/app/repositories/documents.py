@@ -19,12 +19,16 @@ DOCUMENT_UID_NAMESPACE = uuid.UUID("2f7b91c4-6d3e-5a08-9c1f-7b45e0a2d836")
 
 
 def document_uid(
-    case_uid: str, document_date: date, document_type: str, occurrence: int
+    card_key: str, document_date: date, document_type: str, occurrence: int
 ) -> uuid.UUID:
     """
     Детерминированный uid документа из обязательных (identity) полей.
 
-    identity = дело + дата + вид документа + номер повторения.
+    identity = карточка + дата + вид документа + номер повторения.
+
+    КАРТОЧКА, а не дело: card_key — это «УИД | код суда | номер дела»
+    (Case.card_key). По одному УИД карточек бывает несколько, а uid здесь уникален
+    глобально — считай мы его от УИД, строки соседних карточек столкнулись бы.
 
     occurrence — сколько таких же строк встретилось ВЫШЕ на этой же странице. Портал
     отдаёт по несколько одинаковых строк за одну дату (у дела 77MS0002-01-2026-001597-10 —
@@ -36,7 +40,7 @@ def document_uid(
     удалёнными и создал заново.
     """
     key = "|".join(
-        [case_uid, document_date.isoformat(), document_type, str(occurrence)]
+        [card_key, document_date.isoformat(), document_type, str(occurrence)]
     )
     return uuid.uuid5(DOCUMENT_UID_NAMESPACE, key)
 
@@ -73,7 +77,7 @@ class DocumentRepository:
         # 1. Проход по документам, которые есть на актуальной странице
         for item in documents_data:
             group = (item["document_date"], item["document_type"])
-            uid = document_uid(case.uid, *group, occurrence=seen[group])
+            uid = document_uid(case.card_key, *group, occurrence=seen[group])
             seen[group] += 1
             # Номер повторения делает uid разными по построению, поэтому дубля здесь быть
             # не должно. Проверка — страховка от повторной вставки того же uid: она уронила

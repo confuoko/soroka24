@@ -59,7 +59,7 @@ def test_sessions_created_from_page(session, court) -> None:
     # У будущего заседания результата ещё нет.
     assert by_stage["Судебное заседание"].result is None
     assert by_stage["Судебное заседание"].uid == court_session_uid(
-        CASE_UID, datetime(2026, 8, 14, 10, 0), "Судебное заседание"
+        case.card_key, datetime(2026, 8, 14, 10, 0), "Судебное заседание"
     )
 
 

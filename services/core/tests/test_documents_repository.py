@@ -82,7 +82,7 @@ def test_new_attachment_added_at_the_end(session, court) -> None:
     assert len(new) == 1
     assert removed == []
     assert new[0].uid == document_uid(
-        CASE_UID, date(2026, 7, 17), "Приложение", occurrence=21
+        case.card_key, date(2026, 7, 17), "Приложение", occurrence=21
     )
     assert len(case.documents) == 24
 

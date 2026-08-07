@@ -14,16 +14,21 @@ PLACE_HISTORY_UID_NAMESPACE = uuid.UUID("6b1f3c02-9a4d-5e77-b8c1-2f0a7d43e915")
 
 
 def place_history_uid(
-    case_uid: str, place_date: date, place_description: str
+    card_key: str, place_date: date, place_description: str
 ) -> uuid.UUID:
     """
     Детерминированный uid местонахождения из обязательных (identity) полей.
 
-    identity = дело + дата + местонахождение.
+    identity = карточка + дата + местонахождение.
+
+    КАРТОЧКА, а не дело: card_key — это «УИД | код суда | номер дела»
+    (Case.card_key). По одному УИД карточек бывает несколько, а uid здесь уникален
+    глобально — считай мы его от УИД, строки соседних карточек столкнулись бы.
+
     comment сюда НЕ входит — он изменяем (на портале дописывается позже), и его
     правка должна детектиться как UPDATE той же строки, а не как новая строка.
     """
-    key = "|".join([case_uid, place_date.isoformat(), place_description])
+    key = "|".join([card_key, place_date.isoformat(), place_description])
     return uuid.uuid5(PLACE_HISTORY_UID_NAMESPACE, key)
 
 
@@ -57,7 +62,7 @@ class PlaceHistoryRepository:
         for item in places_data:
             # Определяем uid строки
             uid = place_history_uid(
-                case.uid, item["place_date"], item["place_description"]
+                case.card_key, item["place_date"], item["place_description"]
             )
             # Портал иногда отдаёт две побайтово одинаковые строки (та же дата, то же
             # местонахождение, пустой комментарий) — считаем их одной записью. Обработать

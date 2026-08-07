@@ -44,7 +44,16 @@ def request_for_case_sync(payload: CaseSyncRequest, response: Response) -> CaseS
 
 
 def _sync_by_uid(uid: str, force: bool, response: Response) -> CaseSyncResponse:
-    """Дело задано УИД: портал умеет искать по нему сам."""
+    """Дело задано УИД: портал умеет искать по нему сам.
+
+    Поиск заводится ВСЕГДА, даже если дела с этим УИД в БД уже есть. Причина в том, что
+    УИД сквозной: найденные карточки могли прийти ссылками со страниц других инстанций,
+    и ни одной карточки из мировых судов Москвы среди них может не быть. А если есть —
+    рядом могло появиться ещё одно производство по тому же УИД (портал показывает их
+    одной таблицей). Найденное отдаём вместе с id заведённой задачи.
+
+    Поэтому force на эту ветку не влияет: перепарсинг здесь и так происходит каждый раз.
+    """
     # 1. Проверяем формат УИД.
     if not validate_uid(uid):
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
@@ -63,31 +72,31 @@ def _sync_by_uid(uid: str, force: bool, response: Response) -> CaseSyncResponse:
         cases = CaseRepository(session)
         tasks = SearchTaskRepository(session)
 
-        # 3. Карточки уже в БД — сразу отдаём их id.
-        #    Ищем по одному УИД, без суда: суд определяется по номеру участка из таблицы
-        #    результатов, а до портала мы здесь не ходим. Карточек может быть несколько —
-        #    разные суды (дело шло по инстанциям) и разные производства в одном суде.
-        #    С force=true не выходим, а идём парсить заново: так наполняется история
-        #    diff'ов (Case.diff_history) и подтягиваются свежие события.
+        # 3. Что по этому УИД уже есть в БД. Отдаём как есть, из любых судов: УИД
+        #    сквозной, и эти карточки могли прийти со страниц других инстанций.
+        #    Выходить по ним нельзя — см. докстринг.
         existing_cases = cases.list_by_uid(uid)
-        if existing_cases and not force:
-            response.status_code = status.HTTP_200_OK
-            newest = max(existing_cases, key=lambda case: case.updated_at)
-            return CaseSyncResponse(
-                status="exists",
-                case_id=newest.id,
-                case_ids=[case.id for case in existing_cases],
-            )
+        case_ids = [case.id for case in existing_cases] or None
+        newest_id = (
+            max(existing_cases, key=lambda case: case.updated_at).id
+            if existing_cases
+            else None
+        )
 
         # 4. Уже есть незавершённая задача по этому УИД — отдаём её (без дублей).
         active_task = tasks.get_active_by_uid(uid)
         if active_task is not None:
-            return CaseSyncResponse(status="processing", task_id=active_task.id)
+            return CaseSyncResponse(
+                status="processing",
+                task_id=active_task.id,
+                case_id=newest_id,
+                case_ids=case_ids,
+            )
 
         # 5. Иначе создаём новую задачу (id сохраняем до закрытия сессии).
         task_id = tasks.create(uid=uid).id
 
-    return _enqueue(task_id)
+    return _enqueue(task_id, case_id=newest_id, case_ids=case_ids)
 
 
 def _explain_uid_not_searchable(uid: str) -> CaseSyncResponse:
@@ -128,17 +137,11 @@ def _sync_by_url(url: str, force: bool, response: Response) -> CaseSyncResponse:
     УИД станет известен только внутри задачи, когда она получит страницу, поэтому и
     дело, и активную задачу ищем по самой ссылке.
     """
-    # 1. Проверяем, что это вообще адрес и что портал нам знаком.
+    # 1. Проверяем, что это вообще адрес.
     if not validate_url(url):
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return CaseSyncResponse(
             status="invalid_query", message="Это не похоже на адрес карточки дела."
-        )
-    if not is_supported_url(url):
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
-        return CaseSyncResponse(
-            status="unsupported_court",
-            message=f"Портал {urlsplit(url).hostname} пока не поддержан.",
         )
 
     host = (urlsplit(url).hostname or "").lower()
@@ -147,17 +150,30 @@ def _sync_by_url(url: str, force: bool, response: Response) -> CaseSyncResponse:
         cases = CaseRepository(session)
         tasks = SearchTaskRepository(session)
 
-        # 2. Суд определяется по хосту ссылки, и он известен уже здесь. Проверяем сразу:
-        #    поход на портал занимает полминуты и стоит капчи, а без суда в справочнике
-        #    карточку всё равно не сохранить.
-        if CourtRepository(session).get_by_host(host) is None:
+        # 2. Первым делом — есть ли такой суд в справочнике. Именно первым: если суда нет,
+        #    неважно, умеем ли мы работать с его порталом — карточку всё равно не к чему
+        #    привязать. Суд определяется по хосту ссылки и известен уже здесь, до похода
+        #    на портал (а поход занимает полминуты и стоит капчи).
+        court = CourtRepository(session).get_by_host(host)
+        if court is None:
             response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
             return CaseSyncResponse(
                 status="unsupported_court",
                 message=f"Суда с сайтом {host} нет в справочнике судов.",
             )
+        # Название забираем сразу: за пределами session_scope объекта уже не будет.
+        court_name = court.name
 
-        # 3. Карточка с этой ссылкой уже разобрана — отдаём её id (адрес уникален).
+        # 3. Суд нашёлся — умеем ли мы открывать его портал? Клиент есть пока только к
+        #    движку msudrf.ru, а в справочнике 85 регионов со своими порталами.
+        if not is_supported_url(url):
+            response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+            return CaseSyncResponse(
+                status="unsupported_court",
+                message=f"{court_name}: портал {host} пока не поддержан.",
+            )
+
+        # 4. Карточка с этой ссылкой уже разобрана — отдаём её id (адрес уникален).
         existing_case = cases.get_by_url(url)
         if existing_case is not None and not force:
             response.status_code = status.HTTP_200_OK
@@ -167,7 +183,7 @@ def _sync_by_url(url: str, force: bool, response: Response) -> CaseSyncResponse:
                 case_ids=[existing_case.id],
             )
 
-        # 4. По этой же ссылке уже идёт задача — отдаём её, дубль не заводим.
+        # 5. По этой же ссылке уже идёт задача — отдаём её, дубль не заводим.
         active_task = tasks.get_active_by_url(url)
         if active_task is not None:
             return CaseSyncResponse(status="processing", task_id=active_task.id)
@@ -177,12 +193,22 @@ def _sync_by_url(url: str, force: bool, response: Response) -> CaseSyncResponse:
     return _enqueue(task_id)
 
 
-def _enqueue(task_id: int) -> CaseSyncResponse:
-    """Поставить задачу в срочную очередь и вернуть её id."""
+def _enqueue(
+    task_id: int,
+    case_id: int | None = None,
+    case_ids: list[int] | None = None,
+) -> CaseSyncResponse:
+    """Поставить задачу в срочную очередь и вернуть её id.
+
+    case_id/case_ids — то, что по этому делу уже есть в БД на момент постановки задачи
+    (у ветки по УИД такое бывает: поиск заводится независимо от найденного).
+    """
     # apply_async только ПОСЛЕ коммита: иначе воркер может схватить задачу раньше,
     # чем строка появится в БД.
     sync_case.apply_async(args=[task_id], queue="urgent")
-    return CaseSyncResponse(status="processing", task_id=task_id)
+    return CaseSyncResponse(
+        status="processing", task_id=task_id, case_id=case_id, case_ids=case_ids
+    )
 
 
 @router.get("/tasks/{task_id}", response_model=SearchTaskResponse)

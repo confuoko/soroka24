@@ -11,16 +11,20 @@ from app.models.database import Case, Event
 EVENT_UID_NAMESPACE = uuid.UUID("af75dcd7-7083-4294-8e05-d5f643e533c3")
 
 
-def event_uid(case_uid: str, event_date: date, state_description: str) -> uuid.UUID:
+def event_uid(card_key: str, event_date: date, state_description: str) -> uuid.UUID:
     """
     Детерминированный uid события из обязательных (identity) полей.
 
-    identity = дело + дата + описание состояния.
-    document_str сюда НЕ входит —
-    он изменяем (на портале дописывается позже), и его правка должна детектиться
-    как UPDATE того же события, а не как новое событие.
+    identity = карточка + дата + описание состояния.
+
+    КАРТОЧКА, а не дело: card_key — это «УИД | код суда | номер дела»
+    (Case.card_key). По одному УИД карточек бывает несколько, а uid здесь уникален
+    глобально — считай мы его от УИД, строки соседних карточек столкнулись бы.
+
+    document_str сюда НЕ входит — он изменяем (на портале дописывается позже), и его
+    правка должна детектиться как UPDATE того же события, а не как новое событие.
     """
-    key = "|".join([case_uid, event_date.isoformat(), state_description])
+    key = "|".join([card_key, event_date.isoformat(), state_description])
     return uuid.uuid5(EVENT_UID_NAMESPACE, key)
 
 
@@ -54,7 +58,7 @@ class EventRepository:
         for item in events_data:
             # Определяем uid события
             uid = event_uid(
-                case.uid, item["event_date"], item["state_description"]
+                case.card_key, item["event_date"], item["state_description"]
             )
             # Портал может отдать две одинаковые строки (та же дата, то же состояние) —
             # считаем их одним событием. Обработать второе нельзя: uid у него тот же, и

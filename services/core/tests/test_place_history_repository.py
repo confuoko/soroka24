@@ -46,7 +46,7 @@ def test_duplicate_rows_collapsed_into_one(session, court) -> None:
 
     assert len(case.place_history) == 1
     assert case.place_history[0].uid == place_history_uid(
-        CASE_UID, date(2026, 6, 8), "В канцелярии"
+        case.card_key, date(2026, 6, 8), "В канцелярии"
     )
 
 
