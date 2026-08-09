@@ -10,11 +10,18 @@
 * по ссылке — там, где поиска нет, зато карточка открывается по прямому адресу:
   мировые суды Московской области (*.mo.msudrf.ru), Алтайского края (*.alt.msudrf.ru),
   Амурской области (*.amr.msudrf.ru), Архангельской области с Ненецким АО
-  (*.arh.msudrf.ru) и Астраханской области (*.ast.msudrf.ru).
+  (*.arh.msudrf.ru), Астраханской (*.ast.msudrf.ru) и Белгородской (*.blg.msudrf.ru)
+  областей.
 
 Больше пока ничего: остальные регионы либо на других движках, либо на том же msudrf.ru,
 но с непроверенной разметкой. Чтобы добавить регион — допиши строку в COURT_BY_PREFIX
 (префикс УИД -> клиент) или в COURT_BY_DOMAIN (домен портала -> клиент).
+
+Тип страницы здесь НЕ выбирается: резолвер отображает хост сразу в класс клиента, а тип
+у клиента — константа класса (CourtClient.page_type), по которой парсер достаётся из
+реестра. Поэтому регион движка с другой разметкой подключается не развилкой внутри
+клиента, а своим классом: у msudrf.ru таких два — MsudrfCourtClient (тип B) и
+MsudrfTypeCCourtClient (тип C, парсер ещё не написан, доменов на него пока не отображено).
 """
 from urllib.parse import urlsplit
 
@@ -27,6 +34,7 @@ from app.courts.msudrf_court import (
     AMR_DOMAIN,
     ARH_DOMAIN,
     AST_DOMAIN,
+    BLG_DOMAIN,
     MO_DOMAIN,
 )
 from app.courts.msudrf_court import MsudrfCourtClient
@@ -46,6 +54,7 @@ COURT_BY_DOMAIN = {
     AMR_DOMAIN: MsudrfCourtClient,  # 49 мировых судов Амурской области
     ARH_DOMAIN: MsudrfCourtClient,  # 72 суда Архангельской области и Ненецкого АО
     AST_DOMAIN: MsudrfCourtClient,  # 53 мировых суда Астраханской области
+    BLG_DOMAIN: MsudrfCourtClient,  # 80 мировых судов Белгородской области
 }
 
 

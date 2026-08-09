@@ -6,13 +6,17 @@
 from app.parsers.base import CaseParser
 from app.parsers.moscow_type_a import MoscowTypeAParser
 from app.parsers.msudrf_type_b import MsudrfTypeBParser
+from app.parsers.msudrf_type_c import MsudrfTypeCParser
 
 # Соответствие: тип страницы -> класс парсера.
 PARSER_BY_PAGE_TYPE: dict[str, type[CaseParser]] = {
     "A": MoscowTypeAParser,  # мировые суды Москвы (mos-sud.ru)
-    # Мировые суды на движке msudrf.ru: МО, Алтайский край, Амурская, Архангельская
-    # и Астраханская области (полный список доменов — в COURT_BY_DOMAIN).
+    # Мировые суды на движке msudrf.ru (список регионов — в COURT_BY_DOMAIN).
     "B": MsudrfTypeBParser,
+    # ЗАГЛУШКА: вторая разметка того же движка (Брянская область). Разбор не написан,
+    # parse() падает с NotImplementedError. Ни один клиент суда тип C не отдаёт, так что
+    # попасть сюда сейчас неоткуда — строка стоит, чтобы тип был заведён явно.
+    "C": MsudrfTypeCParser,
 }
 
 

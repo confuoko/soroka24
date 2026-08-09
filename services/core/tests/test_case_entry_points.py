@@ -115,13 +115,21 @@ def test_astrakhan_url_resolves_to_msudrf_client() -> None:
         assert isinstance(define_court_by_url(url), MsudrfCourtClient)
 
 
+def test_belgorod_url_resolves_to_msudrf_client() -> None:
+    """Белгородская область — шестой домен движка."""
+    for url in (
+        "https://alex1.blg.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1",
+        "http://belgr2.blg.msudrf.ru/x",
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfCourtClient)
+
+
 def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
     """Тот же движок в чужом регионе пока не обслуживаем.
 
-    Движок общий для 71 региона, но разметку мы смотрели только на Московской области,
-    в Алтайском крае, Амурской, Архангельской и Астраханской областях, поэтому обещать
-    остальные 5373 суда, ни разу их не открыв, нельзя. Подключается регион одной строкой
-    в COURT_BY_DOMAIN — когда его разметку проверят.
+    Движок общий для 71 региона, но разметку мы смотрели только на шести из них (список —
+    в COURT_BY_DOMAIN), поэтому обещать остальные 5293 суда, ни разу их не открыв, нельзя.
+    Подключается регион одной строкой в COURT_BY_DOMAIN — когда его разметку проверят.
     """
     for url in ("http://1.bkr.msudrf.ru/x", "https://maikop1.adg.msudrf.ru/y"):
         assert is_supported_url(url) is False

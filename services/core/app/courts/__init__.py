@@ -11,7 +11,7 @@ from app.courts.base import (
     find_uid,
 )
 from app.courts.moscow_mir_court import MoscowMirCourtClient
-from app.courts.msudrf_court import MsudrfCourtClient
+from app.courts.msudrf_court import MsudrfCourtClient, MsudrfTypeCCourtClient
 from app.courts.resolver import (
     define_court_by_uid,
     define_court_by_url,
@@ -24,6 +24,7 @@ __all__ = [
     "is_supported_url",
     "MoscowMirCourtClient",
     "MsudrfCourtClient",
+    "MsudrfTypeCCourtClient",
     "CourtClient",
     "CourtError",
     "UnsupportedCourt",
