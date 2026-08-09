@@ -92,3 +92,54 @@ def test_same_state_different_dates_kept_separately(session, court) -> None:
 
     assert len(new) == 2
     assert len(case.events) == 2
+
+
+def test_published_at_is_saved_and_updated_separately(session, court) -> None:
+    """«Дата размещения» — изменяемое поле: портал проставляет её позже самого события.
+
+    Проверяем именно её в одиночку: раньше ветка обновления сверяла только document_str,
+    и правка любого другого поля молча терялась бы, а событие не попало бы в updated.
+    """
+    case = _case(session, court)
+    repo = EventRepository(session)
+    page = [
+        {
+            "event_date": date(2026, 6, 8),
+            "state_description": "Завершено",
+            "document_str": None,
+            "published_at": None,
+        }
+    ]
+    repo.sync_events(case, page)
+    session.flush()
+
+    republished = [dict(page[0], published_at=date(2026, 6, 20))]
+    new, updated, removed = repo.sync_events(case, republished)
+
+    assert (new, removed) == ([], [])
+    assert len(updated) == 1
+    assert case.events[0].published_at == date(2026, 6, 20)
+
+
+def test_published_at_stays_out_of_event_identity(session, court) -> None:
+    """Смена «Даты размещения» не пересоздаёт событие: uid считается без неё.
+
+    Иначе на каждой публикации портала событие удалялось бы и заводилось заново, а в
+    истории дела это выглядело бы как новое событие.
+    """
+    case = _case(session, court)
+    repo = EventRepository(session)
+    base = {
+        "event_date": date(2026, 6, 8),
+        "state_description": "Завершено",
+        "document_str": None,
+    }
+    repo.sync_events(case, [dict(base, published_at=date(2026, 6, 10))])
+    session.flush()
+    first_uid = case.events[0].uid
+
+    repo.sync_events(case, [dict(base, published_at=date(2026, 6, 20))])
+    session.flush()
+
+    assert len(case.events) == 1
+    assert case.events[0].uid == first_uid

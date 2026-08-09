@@ -180,7 +180,11 @@ class Case(Base):
     superior_case_number: Mapped[str | None] = mapped_column(String)
     # Категория дела (необязательная).
     category: Mapped[str | None] = mapped_column(String)
-    # Текущее состояние дела (необязательное).
+    # Текущее состояние дела (необязательное). Откуда берётся, зависит от портала:
+    # у судов Москвы это метка «Текущее состояние» карточки, а у мировых судов Московской
+    # области такой метки нет вовсе, и состоянием служит наименование последнего события
+    # «Движения дела» — в том числе того, которое ещё не получило даты и потому в таблицу
+    # event не попало.
     status: Mapped[str | None] = mapped_column(String)
     # Когда запись создана в БД (значение проставляет сервер БД).
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
@@ -415,6 +419,10 @@ class Event(Base):
     state_description: Mapped[str] = mapped_column(Text)
     # Название документа-основания текстом (на портале ссылок обычно нет — только имя).
     document_str: Mapped[str | None] = mapped_column(Text)
+    # Дата публикации события на портале (метка «Дата размещения», страницы типа B).
+    # В identity НЕ входит: портал проставляет её позже самого события и потом правит,
+    # а от изменения identity уехали бы uid всех уже сохранённых событий.
+    published_at: Mapped[date | None] = mapped_column(Date)
     # Необязательная ссылка на документ; при удалении документа — обнуляется (SET NULL).
     document_id: Mapped[int | None] = mapped_column(
         ForeignKey("document.id", ondelete="SET NULL")

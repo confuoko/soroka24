@@ -27,7 +27,7 @@ https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=429386415&delo_i
   выпадает не всегда, а иногда прилетает второй раз подряд уже после верного ответа,
   поэтому проверка идёт циклом.
 
-Метод parse() делегирует парсеру типа B — его ещё предстоит написать.
+Метод parse() делегирует парсеру типа B (app/parsers/msudrf_type_b.py).
 """
 import dataclasses
 import logging

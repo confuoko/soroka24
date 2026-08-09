@@ -119,6 +119,8 @@ class EventOut(_FromORM):
     event_date: date  # NOT NULL в БД: входит в identity события (см. event_uid)
     state_description: str
     document_str: Optional[str] = None
+    # «Дата размещения» события на портале (страницы типа B).
+    published_at: Optional[date] = None
 
 
 class PlaceHistoryOut(_FromORM):

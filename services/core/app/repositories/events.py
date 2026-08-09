@@ -21,8 +21,9 @@ def event_uid(card_key: str, event_date: date, state_description: str) -> uuid.U
     (Case.card_key). По одному УИД карточек бывает несколько, а uid здесь уникален
     глобально — считай мы его от УИД, строки соседних карточек столкнулись бы.
 
-    document_str сюда НЕ входит — он изменяем (на портале дописывается позже), и его
-    правка должна детектиться как UPDATE того же события, а не как новое событие.
+    document_str и published_at сюда НЕ входят — они изменяемы (на портале дописываются
+    позже), и их правка должна детектиться как UPDATE того же события, а не как новое
+    событие.
     """
     key = "|".join([card_key, event_date.isoformat(), state_description])
     return uuid.uuid5(EVENT_UID_NAMESPACE, key)
@@ -40,9 +41,9 @@ class EventRepository:
         """Привести события дела к тому, что сейчас на странице.
 
         Возвращает (new_events, updated_events, removed_events):
-        - uid новый               → создаём событие          → new_events;
-        - uid есть, document_str изменился → обновляем поле   → updated_events;
-        - uid события больше нет на странице → удаляем         → removed_events.
+        - uid новый                          → создаём событие → new_events;
+        - uid есть, изменилось изменяемое поле → обновляем      → updated_events;
+        - uid события больше нет на странице  → удаляем         → removed_events.
 
         Страница — источник истины. Порядок важен: сначала одним проходом по
         events_data наполняем desired_uids и добавляем/обновляем, и только потом
@@ -76,13 +77,21 @@ class EventRepository:
                     event_date=item["event_date"],
                     state_description=item["state_description"],
                     document_str=item.get("document_str"),
+                    published_at=item.get("published_at"),
                 )
                 case.events.append(event)
                 new_events.append(event)
-            # Если событие нашлось, но сменился/появился документ - обновляем
-            elif existing_event.document_str != item.get("document_str"):
-                existing_event.document_str = item.get("document_str")
-                updated_events.append(existing_event)
+            # Если событие нашлось — сверяем изменяемые поля. Проверяем КАЖДОЕ: раньше
+            # здесь была одна ветка по document_str, и правка любого другого поля молча
+            # терялась бы, а событие не попадало в updated_events.
+            else:
+                changed = False
+                for field in ("document_str", "published_at"):
+                    if getattr(existing_event, field) != item.get(field):
+                        setattr(existing_event, field, item.get(field))
+                        changed = True
+                if changed:
+                    updated_events.append(existing_event)
 
         # Удаляем события, пропавшие со страницы (cascade delete-orphan уберёт их из БД).
         removed_events = [e for e in case.events if e.uid not in desired_uids]

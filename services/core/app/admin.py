@@ -185,7 +185,13 @@ class EventAdmin(ModelView, model=Event):
 
     name = "Событие"
     name_plural = "События"
-    column_list = [Event.id, Event.case_id, Event.event_date, Event.state_description]
+    column_list = [
+        Event.id,
+        Event.case_id,
+        Event.event_date,
+        Event.state_description,
+        Event.published_at,
+    ]
 
 
 class PlaceHistoryAdmin(ModelView, model=PlaceHistory):

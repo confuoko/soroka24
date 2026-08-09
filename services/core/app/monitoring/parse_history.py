@@ -39,6 +39,7 @@ def _event_to_dict(event: Event) -> dict:
         "event_date": _iso(event.event_date),
         "state_description": event.state_description,
         "document_str": event.document_str,
+        "published_at": _iso(event.published_at),
     }
 
 

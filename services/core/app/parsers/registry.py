@@ -5,10 +5,12 @@
 """
 from app.parsers.base import CaseParser
 from app.parsers.moscow_type_a import MoscowTypeAParser
+from app.parsers.msudrf_type_b import MsudrfTypeBParser
 
 # Соответствие: тип страницы -> класс парсера.
 PARSER_BY_PAGE_TYPE: dict[str, type[CaseParser]] = {
     "A": MoscowTypeAParser,  # мировые суды Москвы (mos-sud.ru)
+    "B": MsudrfTypeBParser,  # мировые суды Московской области (*.mo.msudrf.ru)
 }
 
 

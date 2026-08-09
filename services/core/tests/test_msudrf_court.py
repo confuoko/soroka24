@@ -278,3 +278,24 @@ def test_missing_uid_is_case_not_found() -> None:
     """Страница есть, а карточки на ней нет — окончательный отказ, повторять нечего."""
     with pytest.raises(CaseNotFound):
         MsudrfCourtClient().extract_uid(EMPTY_HTML)
+
+
+# --------------------------------------------------------------- номер дела со страницы
+def test_case_code_is_extracted_from_heading() -> None:
+    """Номер дела есть только в заголовке: в таблице карточки его нет вовсе."""
+    html = "<html><body><h2>ДЕЛО № 2-1244/2026</h2></body></html>"
+
+    assert MsudrfCourtClient().extract_case_code(html) == "2-1244/2026"
+
+
+def test_material_case_code_starts_with_cyrillic_letter() -> None:
+    """У материала номер начинается с кириллической «М» — цифрами номер не ограничен."""
+    html = "<html><body><h2>ДЕЛО № М-2987/2026</h2></body></html>"
+
+    assert MsudrfCourtClient().extract_case_code(html) == "М-2987/2026"
+
+
+def test_missing_case_code_is_case_not_found() -> None:
+    """Без номера дело не сохранить (он в ключе карточки) — повторять поход бессмысленно."""
+    with pytest.raises(CaseNotFound):
+        MsudrfCourtClient().extract_case_code(EMPTY_HTML)
