@@ -83,12 +83,45 @@ def test_altai_republic_is_not_altai_krai() -> None:
         define_court_by_url("https://galtms1.ralt.msudrf.ru/case")
 
 
+def test_amur_oblast_url_resolves_to_msudrf_client() -> None:
+    """Амурская область — третий подключённый регион движка, поддомены тоже именные."""
+    for url in (
+        "https://arhr.amr.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1",
+        "http://bel1.amr.msudrf.ru/x",
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfCourtClient)
+
+
+def test_arkhangelsk_url_resolves_to_msudrf_client() -> None:
+    """Архангельская область — и вместе с ней Ненецкий АО: портал у них общий.
+
+    Округ входит в область административно, поэтому его три суда сидят на том же домене
+    с теми же кодами 29MS. Проверяем оба случая: отдельной строки в COURT_BY_DOMAIN у
+    округа нет и быть не должно.
+    """
+    for url in (
+        "https://1vel.arh.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1",
+        "http://1nao.arh.msudrf.ru/x",  # Ненецкий АО, 29MS0070
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfCourtClient)
+
+
+def test_astrakhan_url_resolves_to_msudrf_client() -> None:
+    """Астраханская область — пятый домен движка."""
+    for url in (
+        "https://kir1.ast.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1",
+        "http://chrn1.ast.msudrf.ru/x",
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfCourtClient)
+
+
 def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
     """Тот же движок в чужом регионе пока не обслуживаем.
 
-    Движок общий для 71 региона, но разметку мы смотрели только на Московской области и
-    Алтайском крае, поэтому обещать остальные 5547 судов, ни разу их не открыв, нельзя.
-    Подключается регион одной строкой в COURT_BY_DOMAIN — когда его разметку проверят.
+    Движок общий для 71 региона, но разметку мы смотрели только на Московской области,
+    в Алтайском крае, Амурской, Архангельской и Астраханской областях, поэтому обещать
+    остальные 5373 суда, ни разу их не открыв, нельзя. Подключается регион одной строкой
+    в COURT_BY_DOMAIN — когда его разметку проверят.
     """
     for url in ("http://1.bkr.msudrf.ru/x", "https://maikop1.adg.msudrf.ru/y"):
         assert is_supported_url(url) is False
