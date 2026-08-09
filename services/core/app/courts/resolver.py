@@ -8,7 +8,7 @@
 
 * по УИД — там, где на портале есть поиск по нему: мировые суды Москвы (mos-sud.ru);
 * по ссылке — там, где поиска нет, зато карточка открывается по прямому адресу:
-  мировые суды Московской области (*.mo.msudrf.ru).
+  мировые суды Московской области (*.mo.msudrf.ru) и Алтайского края (*.alt.msudrf.ru).
 
 Больше пока ничего: остальные регионы либо на других движках, либо на том же msudrf.ru,
 но с непроверенной разметкой. Чтобы добавить регион — допиши строку в COURT_BY_PREFIX
@@ -20,7 +20,7 @@ from app.browser import ProxySettings
 from app.captcha import AttemptSink
 from app.courts.base import CourtClient, UnsupportedCourt
 from app.courts.moscow_mir_court import MoscowMirCourtClient
-from app.courts.msudrf_court import MO_DOMAIN
+from app.courts.msudrf_court import ALT_DOMAIN, MO_DOMAIN
 from app.courts.msudrf_court import MsudrfCourtClient
 
 # Соответствие: префикс УИД -> класс клиента суда.
@@ -34,6 +34,7 @@ COURT_BY_PREFIX = {
 # поэтому одна строка накрывает все поддомены региона (95.mo.msudrf.ru, 148.mo.msudrf.ru).
 COURT_BY_DOMAIN = {
     MO_DOMAIN: MsudrfCourtClient,  # 374 мировых суда Московской области
+    ALT_DOMAIN: MsudrfCourtClient,  # 143 мировых суда Алтайского края
 }
 
 

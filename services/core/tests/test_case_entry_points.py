@@ -57,12 +57,38 @@ def test_moscow_region_url_resolves_to_msudrf_client() -> None:
         assert isinstance(define_court_by_url(url), MsudrfCourtClient)
 
 
+def test_altai_krai_url_resolves_to_msudrf_client() -> None:
+    """Алтайский край — тот же движок и тот же клиент, только другой домен.
+
+    Поддомены там именные, а не по номеру участка (centr1, biysk1), поэтому проверяем
+    именно домен: разбирать имя участка из хоста нечем и не нужно.
+    """
+    for url in (
+        "https://centr1.alt.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1",
+        "http://biysk1.alt.msudrf.ru/x",
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfCourtClient)
+
+
+def test_altai_republic_is_not_altai_krai() -> None:
+    """Республика Алтай сидит на *.ralt.msudrf.ru — это ДРУГОЙ регион, его не обслуживаем.
+
+    Ровно тот случай, ради которого домен сверяется по границе имени: без ведущей точки
+    endswith("alt.msudrf.ru") затянул бы сюда все 14 судов республики (код 02MS), и
+    браузер пошёл бы в регион, разметку которого никто не смотрел.
+    """
+    assert is_supported_url("https://galtms1.ralt.msudrf.ru/case") is False
+
+    with pytest.raises(UnsupportedCourt):
+        define_court_by_url("https://galtms1.ralt.msudrf.ru/case")
+
+
 def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
     """Тот же движок в чужом регионе пока не обслуживаем.
 
-    Движок общий для 71 региона, но разметку мы смотрели только на Московской области,
-    поэтому обещать остальные 5690 судов, ни разу их не открыв, нельзя. Подключается
-    регион одной строкой в COURT_BY_DOMAIN — когда его разметку проверят.
+    Движок общий для 71 региона, но разметку мы смотрели только на Московской области и
+    Алтайском крае, поэтому обещать остальные 5547 судов, ни разу их не открыв, нельзя.
+    Подключается регион одной строкой в COURT_BY_DOMAIN — когда его разметку проверят.
     """
     for url in ("http://1.bkr.msudrf.ru/x", "https://maikop1.adg.msudrf.ru/y"):
         assert is_supported_url(url) is False
