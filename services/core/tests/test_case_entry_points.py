@@ -124,11 +124,31 @@ def test_belgorod_url_resolves_to_msudrf_client() -> None:
         assert isinstance(define_court_by_url(url), MsudrfCourtClient)
 
 
+def test_volgograd_and_vologda_urls_resolve_to_msudrf_client() -> None:
+    """Волгоградская и Вологодская области — соседние домены, различаются одной буквой.
+
+    Проверяем обе разом: vol/vld легко перепутать при добавлении, а рядом живёт ещё и
+    Владимирская область на wld.msudrf.ru, которую мы не подключали.
+    """
+    for url in ("https://1.vol.msudrf.ru/x", "https://146.vol.msudrf.ru/x"):
+        assert isinstance(define_court_by_url(url), MsudrfCourtClient)
+    for url in ("https://1.vld.msudrf.ru/x", "https://68.vld.msudrf.ru/x"):
+        assert isinstance(define_court_by_url(url), MsudrfCourtClient)
+
+    assert is_supported_url("https://1.wld.msudrf.ru/x") is False
+
+
+def test_voronezh_url_resolves_to_msudrf_client() -> None:
+    """Воронежская область — девятый домен движка, поддомены именные."""
+    for url in ("https://zhelezn1.vrn.msudrf.ru/x", "http://zhelezn4.vrn.msudrf.ru/y"):
+        assert isinstance(define_court_by_url(url), MsudrfCourtClient)
+
+
 def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
     """Тот же движок в чужом регионе пока не обслуживаем.
 
-    Движок общий для 71 региона, но разметку мы смотрели только на шести из них (список —
-    в COURT_BY_DOMAIN), поэтому обещать остальные 5293 суда, ни разу их не открыв, нельзя.
+    Движок общий для 71 региона, но разметку мы смотрели только на девяти из них (список —
+    в COURT_BY_DOMAIN), поэтому обещать остальные 4963 суда, ни разу их не открыв, нельзя.
     Подключается регион одной строкой в COURT_BY_DOMAIN — когда его разметку проверят.
     """
     for url in ("http://1.bkr.msudrf.ru/x", "https://maikop1.adg.msudrf.ru/y"):

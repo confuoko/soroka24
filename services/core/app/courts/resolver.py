@@ -8,10 +8,8 @@
 
 * по УИД — там, где на портале есть поиск по нему: мировые суды Москвы (mos-sud.ru);
 * по ссылке — там, где поиска нет, зато карточка открывается по прямому адресу:
-  мировые суды Московской области (*.mo.msudrf.ru), Алтайского края (*.alt.msudrf.ru),
-  Амурской области (*.amr.msudrf.ru), Архангельской области с Ненецким АО
-  (*.arh.msudrf.ru), Астраханской (*.ast.msudrf.ru) и Белгородской (*.blg.msudrf.ru)
-  областей.
+  мировые суды на движке msudrf.ru; какие регионы подключены — видно по COURT_BY_DOMAIN
+  ниже, это единственный источник списка.
 
 Больше пока ничего: остальные регионы либо на других движках, либо на том же msudrf.ru,
 но с непроверенной разметкой. Чтобы добавить регион — допиши строку в COURT_BY_PREFIX
@@ -36,6 +34,9 @@ from app.courts.msudrf_court import (
     AST_DOMAIN,
     BLG_DOMAIN,
     MO_DOMAIN,
+    VLD_DOMAIN,
+    VOL_DOMAIN,
+    VRN_DOMAIN,
 )
 from app.courts.msudrf_court import MsudrfCourtClient
 
@@ -55,6 +56,9 @@ COURT_BY_DOMAIN = {
     ARH_DOMAIN: MsudrfCourtClient,  # 72 суда Архангельской области и Ненецкого АО
     AST_DOMAIN: MsudrfCourtClient,  # 53 мировых суда Астраханской области
     BLG_DOMAIN: MsudrfCourtClient,  # 80 мировых судов Белгородской области
+    VOL_DOMAIN: MsudrfCourtClient,  # 145 мировых судов Волгоградской области
+    VLD_DOMAIN: MsudrfCourtClient,  # 68 мировых судов Вологодской области
+    VRN_DOMAIN: MsudrfCourtClient,  # 117 мировых судов Воронежской области
 }
 
 
