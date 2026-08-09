@@ -72,6 +72,24 @@ CAPTCHA_LANGUAGE_POOL = os.getenv("CAPTCHA_LANGUAGE_POOL", "rn")
 # Это защита от похода на портал не с того IP. В российском облаке можно 0.
 COURT_PROXY_REQUIRED = os.getenv("COURT_PROXY_REQUIRED", "1") not in ("0", "false", "False")
 
+# --- Периодический обход дел на мониторинге -----------------------------------
+
+# Как часто переобходить одно дело (часы). Планировщик берёт только те карточки,
+# которые не проверялись дольше этого срока.
+MONITORING_INTERVAL_HOURS = int(os.getenv("MONITORING_INTERVAL_HOURS", "24"))
+
+# В котором часу запускать ежедневный обход. Ночью: походы медленные, а днём та же
+# очередь нужна срочным запросам пользователей.
+MONITORING_HOUR = int(os.getenv("MONITORING_HOUR", "3"))
+
+# Пауза между постановками дел в очередь (секунды). Веер без паузы выел бы пул
+# прокси и деньги на капчу за минуту: один поход в суд — 25-35 секунд.
+MONITORING_SPACING_SECONDS = int(os.getenv("MONITORING_SPACING_SECONDS", "60"))
+
+# Сколько дел брать за один запуск (0 — все). Ограничитель на случай, когда дел
+# на мониторинге стало больше, чем реально успевает обойтись за сутки.
+MONITORING_BATCH_LIMIT = int(os.getenv("MONITORING_BATCH_LIMIT", "0"))
+
 # Сколько последних записей хранить в Case.diff_history: поле JSONB перезаписывается
 # целиком при каждом апдейте, поэтому расти без предела ему нельзя.
 DIFF_HISTORY_LIMIT = int(os.getenv("DIFF_HISTORY_LIMIT", "200"))

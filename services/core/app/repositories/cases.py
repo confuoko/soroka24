@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.database import Case, CaseLink, CaseUrl, Court
@@ -104,6 +104,17 @@ class CaseRepository:
             )
         )
 
+    def get_with_court(self, case_id: int) -> Optional[Case]:
+        """Дело с загруженным судом и БЕЗ остальных связей (или None).
+
+        Для витрины: там нужны статус, даты и название суда, а get_full тянет все
+        события, заседания и документы карточки — на список дел это лишняя работа
+        и лишние сотни килобайт по сети.
+        """
+        return self._session.scalar(
+            select(Case).where(Case.id == case_id).options(selectinload(Case.court))
+        )
+
     def get_by_url(self, url: str) -> Optional[Case]:
         """Карточка по ссылке на неё (адрес уникален глобально).
 
@@ -146,6 +157,55 @@ class CaseRepository:
         if case_url is not None:
             case_url.last_success_at = datetime.utcnow()
 
+    def set_monitoring(self, case_id: int, enabled: bool) -> Optional[Case]:
+        """Включить/выключить периодический обход карточки. None — карточки нет."""
+        case = self._session.get(Case, case_id)
+        if case is None:
+            return None
+        case.monitoring_enabled = enabled
+        return case
+
+    def mark_checked(self, case: Case, checked_at: datetime, changed: bool) -> None:
+        """Отметить обход карточки: когда ходили и менялось ли что-нибудь.
+
+        last_checked_at ставится на КАЖДОМ обходе, в том числе холостом: иначе
+        планировщик, выбирающий дела по этому полю, брал бы одни и те же
+        неменяющиеся дела снова и снова.
+
+        last_changed_at — только когда сверка дала непустой diff. Это и есть «дата
+        последнего обновления дела» для пользователя; updated_at на эту роль не
+        годится, потому что на каждом обходе дозаписывается diff_history и строка
+        обновляется всегда.
+
+        У новой карточки дата проставляется при создании (см.
+        upsert_by_uid_court_code): её changes пусты по построению, и сюда бы она
+        пришла с changed=False.
+        """
+        case.last_checked_at = checked_at
+        if changed:
+            case.last_changed_at = checked_at
+
+    def list_monitored_ids(self, older_than: Optional[datetime], limit: int = 0) -> list[int]:
+        """id карточек, которые пора переобойти.
+
+        older_than — граница «давно не проверяли»; None означает «все, что стоят на
+        мониторинге, независимо от даты» (нужно для ручного прогона).
+
+        Возвращаем именно id, а не объекты: каждая карточка дальше обрабатывается
+        своей задачей в своей сессии, и держать их все загруженными незачем.
+        """
+        query = select(Case.id).where(Case.monitoring_enabled.is_(True))
+        if older_than is not None:
+            # Дело, которое ещё ни разу не проверяли, тоже берём.
+            query = query.where(
+                or_(Case.last_checked_at.is_(None), Case.last_checked_at < older_than)
+            )
+        # Раньше всех — те, кого дольше всех не проверяли; NULL вперёд.
+        query = query.order_by(Case.last_checked_at.asc().nullsfirst(), Case.id)
+        if limit:
+            query = query.limit(limit)
+        return list(self._session.scalars(query))
+
     @staticmethod
     def primary_url(case: Case) -> Optional[str]:
         """Каким адресом ходить за карточкой при повторном обходе.
@@ -186,7 +246,10 @@ class CaseRepository:
         is_new = case is None
         if case is None:
             # code задаём сразу при создании: он NOT NULL, а flush() ниже не должен упасть.
-            case = Case(uid=uid, court=court, code=code)
+            # last_changed_at тоже: появление карточки — само по себе изменение, а список
+            # changes у новой карточки пустой по построению, и mark_checked ниже дату бы
+            # не проставил. Пустая дата выглядела бы как «дело никогда не менялось».
+            case = Case(uid=uid, court=court, code=code, last_changed_at=datetime.utcnow())
             self._session.add(case)
 
         # Обновляем только те поля, что реально пришли от парсера. Парсер отдаёт ВСЕ

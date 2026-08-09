@@ -21,6 +21,10 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Заводит вторую базу — soroka_client (схему client ведёт Django, схему core —
+      # alembic; в одной базе они столкнулись бы). Отрабатывает только при первой
+      # инициализации кластера, то есть на пустом томе postgres_data.
+      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
@@ -92,6 +96,10 @@ services:
     build: ./services/core
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     environment:
+      # Одна таймзона во всех контейнерах: Django в client выставляет её процессу,
+      # и без выравнивания воркеры core и client ругаются друг на друга
+      # расхождением часов (mingle: "Substantial drift").
+      TZ: ${TZ}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
       DATABASE_URL: ${DATABASE_URL}
@@ -125,6 +133,10 @@ services:
     # срочная очередь: свежие дела от новых пользователей — быстрый отклик
     command: celery -A app.celery_app worker -Q urgent -l info --concurrency=2
     environment:
+      # Одна таймзона во всех контейнерах: Django в client выставляет её процессу,
+      # и без выравнивания воркеры core и client ругаются друг на друга
+      # расхождением часов (mingle: "Substantial drift").
+      TZ: ${TZ}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
       DATABASE_URL: ${DATABASE_URL}
@@ -155,6 +167,10 @@ services:
     # рядовая очередь: фоновый ежедневный обход существующих дел
     command: celery -A app.celery_app worker -Q regular -l info --concurrency=4
     environment:
+      # Одна таймзона во всех контейнерах: Django в client выставляет её процессу,
+      # и без выравнивания воркеры core и client ругаются друг на друга
+      # расхождением часов (mingle: "Substantial drift").
+      TZ: ${TZ}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
       DATABASE_URL: ${DATABASE_URL}
@@ -179,21 +195,87 @@ services:
       minio:
         condition: service_started
 
+  # Celery-beat core: расписание фоновых обходов (сам воркер расписание не читает).
+  # Раз в сутки ночью ставит в очередь regular переобход всех дел на мониторинге.
+  core-beat:
+    build: ./services/core
+    command: celery -A app.celery_app beat -l info
+    environment:
+      # Одна таймзона во всех контейнерах: Django в client выставляет её процессу,
+      # и без выравнивания воркеры core и client ругаются друг на друга
+      # расхождением часов (mingle: "Substantial drift").
+      TZ: ${TZ}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+      DATABASE_URL: ${DATABASE_URL}
+      MONITORING_INTERVAL_HOURS: ${MONITORING_INTERVAL_HOURS}
+      MONITORING_HOUR: ${MONITORING_HOUR}
+      MONITORING_SPACING_SECONDS: ${MONITORING_SPACING_SECONDS}
+      MONITORING_BATCH_LIMIT: ${MONITORING_BATCH_LIMIT}
+    volumes:
+      - ./services/core:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   # ------------------------------------------------------------------ client
-  # Веб-сервис (Django): регистрация, фронт, боты. Пока — страница-заглушка.
+  # Веб-сервис (Django): регистрация, список дел на мониторинге, API для бота.
   client-web:
     build: ./services/client
     command: python manage.py runserver 0.0.0.0:8080
-    environment:
+    environment: &client-env
+      TZ: ${TZ}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       DJANGO_DEBUG: ${DJANGO_DEBUG}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+      # Своя база: схему client ведёт Django, схему core — alembic.
+      CLIENT_DB_NAME: ${CLIENT_DB_NAME}
+      CLIENT_DB_USER: ${POSTGRES_USER}
+      CLIENT_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      CLIENT_DB_HOST: postgres
+      CLIENT_DB_PORT: 5432
+      # Дела клиент берёт только по HTTP из core-api, в его БД не ходит.
+      CORE_API_URL: ${CORE_API_URL}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
     ports:
       - "8080:8080"      # http://localhost:8080/
     volumes:
       - ./services/client:/app
     depends_on:
       postgres:
+        condition: service_healthy
+
+  # Celery-воркер client: опрашивает core о состоянии заведённых дел.
+  # Очередь своя (client) — в очередях core нет ни Django, ни его настроек.
+  client-worker:
+    build: ./services/client
+    command: celery -A config.celery_app worker -Q client -l info --concurrency=2
+    environment: *client-env
+    volumes:
+      - ./services/client:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # Celery-beat client: раз в минуту опрашивает задачи по делам в состоянии
+  # «ищем дело», раз в 15 минут обновляет витрину.
+  client-beat:
+    build: ./services/client
+    command: celery -A config.celery_app beat -l info
+    environment: *client-env
+    volumes:
+      - ./services/client:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
 volumes:

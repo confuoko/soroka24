@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Мои дела{% endblock %}
+
+{% block content %}
+  <h1>Дела на мониторинге</h1>
+
+  <div class="panel">
+    {% if cases %}
+      <table>
+        <thead>
+          <tr>
+            <th>Дело</th>
+            <th>Состояние</th>
+            <th>Статус</th>
+            <th>Изменено</th>
+            <th>Проверено</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for case in cases %}
+            <tr>
+              <td class="num"><a href="{% url 'case_detail' case.pk %}">{{ case.core_case_id|default:"—" }}</a></td>
+              <td><span class="badge badge--{{ case.state }}">{{ case.get_state_display }}</span></td>
+              <td>{{ case.core_status|default:"—" }}</td>
+              <td class="num">{{ case.core_changed_at|date:"d.m.Y H:i"|default:"—" }}</td>
+              <td class="num">{{ case.core_last_checked_at|date:"d.m.Y H:i"|default:"—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Пока ни одного дела. Добавьте первое ниже.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Добавить дело</h2>
+    <form method="post" action="{% url 'case_add' %}">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <div class="actions"><button type="submit">Поставить на мониторинг</button></div>
+    </form>
+  </div>
+{% endblock %}

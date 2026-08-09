@@ -11,6 +11,10 @@ env/
 staticfiles/
 media/
 
+# Celery beat: файл состояния расписания, пишется в примонтированную папку сервиса
+celerybeat-schedule
+celerybeat.pid
+
 # Env / secrets
 .env
 

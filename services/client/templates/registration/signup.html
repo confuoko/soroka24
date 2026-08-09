@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Регистрация{% endblock %}
+
+{% block content %}
+  <div class="panel panel--narrow">
+    <h1>Регистрация</h1>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <div class="actions"><button type="submit">Зарегистрироваться</button></div>
+    </form>
+    <p class="muted" style="margin-top:1.25rem">
+      Уже есть аккаунт? <a href="{% url 'web_login' %}">Войти</a>
+    </p>
+  </div>
+{% endblock %}

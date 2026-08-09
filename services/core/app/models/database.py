@@ -184,10 +184,28 @@ class Case(Base):
     status: Mapped[str | None] = mapped_column(String)
     # Когда запись создана в БД (значение проставляет сервер БД).
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-    # Когда запись последний раз обновлялась (обновляется автоматически при UPDATE).
+    # Когда строку последний раз трогали в БД (обновляется автоматически при UPDATE).
+    # Показывать это пользователю как «дата обновления дела» НЕЛЬЗЯ: на каждом обходе
+    # дозаписывается diff_history, то есть строка обновляется всегда, даже когда на
+    # портале ничего не изменилось. Для пользователя есть last_checked_at и
+    # last_changed_at.
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now()
     )
+
+    # Дело переобходится по расписанию (см. sync_monitored_cases в app/monitoring/tasks.py).
+    # Флаг именно у КАРТОЧКИ, а не отдельная таблица подписок: кто из пользователей следит
+    # за делом — знание клиентского сервиса, core про пользователей не знает вовсе.
+    monitoring_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), index=True
+    )
+    # Когда карточку последний раз ХОДИЛИ проверять — проставляется на каждом успешном
+    # разборе, даже если ничего не изменилось. По этому полю планировщик выбирает, чья
+    # очередь обходиться.
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    # Когда на портале последний раз что-то РЕАЛЬНО изменилось (сверка дала непустой
+    # diff). Именно это пользователь и называет «дата последнего обновления дела».
+    last_changed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     # История парсингов дела: по одной записи на КАЖДЫЙ вызов парсинга, включая
     # «изменений нет» и «сайт суда не открылся». Формат записи и дозапись —

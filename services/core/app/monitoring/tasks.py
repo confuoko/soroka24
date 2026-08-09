@@ -21,7 +21,7 @@ Case.diff_history дозаписывается запись о том, что и
 изменений нет и когда сайт суда не открылся.
 """
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
 from celery.exceptions import Retry
@@ -30,7 +30,13 @@ from celery.utils.log import get_task_logger
 from app.browser import lease_proxy
 from app.captcha import CaptchaAttempt
 from app.celery_app import celery_app
-from app.config import HTML_SNAPSHOT_ENABLED, S3_BUCKET
+from app.config import (
+    HTML_SNAPSHOT_ENABLED,
+    MONITORING_BATCH_LIMIT,
+    MONITORING_INTERVAL_HOURS,
+    MONITORING_SPACING_SECONDS,
+    S3_BUCKET,
+)
 from app.courts import (
     CaseNotFound,
     FetchedCard,
@@ -579,6 +585,14 @@ def _sync_case(celery_task, task_id: int) -> None:
             saved_ids.append(changes.case.id)
             _log_changes(uid, changes)
 
+            # Отмечаем и факт похода, и факт изменения — это разные даты, и обе нужны:
+            # по last_checked_at планировщик набирает дела, last_changed_at видит
+            # пользователь. updated_at ни на то, ни на другое не годится: ниже
+            # дозаписывается diff_history, и строка обновляется на каждом обходе.
+            CaseRepository(session).mark_checked(
+                changes.case, fetched_at, changed=changes.has_changes()
+            )
+
             # Историю пишем здесь же, до коммита: у удалённых событий и местонахождений
             # атрибуты в этот момент ещё загружены в сессии.
             append_parse_entry(
@@ -609,7 +623,62 @@ def _sync_case(celery_task, task_id: int) -> None:
     _mark_success(task_id, saved_ids[0])
 
 
-def enqueue_case_resync(case_id: int, queue: str = "regular") -> int | None:
+@celery_app.task
+def sync_monitored_cases(
+    interval_hours: int | None = None, limit: int | None = None
+) -> int:
+    """Поставить в очередь переобход всех дел, стоящих на мониторинге.
+
+    Запускается по расписанию (beat_schedule в app/celery_app.py) раз в сутки ночью.
+    Днём та же очередь regular нужна не так сильно, а срочные запросы пользователей
+    идут через urgent и с ночным обходом не пересекаются.
+
+    Дела берутся не все подряд, а те, которых давно не проверяли (last_checked_at
+    старше interval_hours). Так повторный запуск в тот же день не гонит браузер по
+    второму разу, а дело, добавленное вчера вечером, не ждёт лишние сутки.
+
+    Задачи ставятся С РАЗНОСОМ ПО ВРЕМЕНИ: один поход в суд занимает 25-35 секунд,
+    требует прокси из пула и платной капчи. Веер из сотни дел, выпущенный разом,
+    выел бы пул и деньги за минуту и почти наверняка словил бы 429 от портала.
+
+    Возвращает число поставленных в очередь дел.
+    """
+    hours = MONITORING_INTERVAL_HOURS if interval_hours is None else interval_hours
+    batch = MONITORING_BATCH_LIMIT if limit is None else limit
+
+    # interval_hours=0 — «взять все, независимо от даты последней проверки»
+    # (нужно для ручного прогона и отладки).
+    older_than = datetime.utcnow() - timedelta(hours=hours) if hours > 0 else None
+
+    with session_scope() as session:
+        case_ids = CaseRepository(session).list_monitored_ids(older_than, limit=batch)
+
+    if not case_ids:
+        logger.info("Дел на мониторинге, требующих обхода, нет")
+        return 0
+
+    queued = 0
+    for position, case_id in enumerate(case_ids):
+        task_id = enqueue_case_resync(
+            case_id,
+            queue="regular",
+            countdown=position * MONITORING_SPACING_SECONDS,
+        )
+        if task_id is not None:
+            queued += 1
+
+    logger.info(
+        "Поставлено на обход дел: %d (разнос %d с, весь проход займёт ~%d мин)",
+        queued,
+        MONITORING_SPACING_SECONDS,
+        queued * MONITORING_SPACING_SECONDS // 60,
+    )
+    return queued
+
+
+def enqueue_case_resync(
+    case_id: int, queue: str = "regular", countdown: int = 0
+) -> int | None:
     """Поставить дело на повторный парсинг по его id в БД.
 
     sync_case принимает id ЗАДАЧИ, а не дела, поэтому задачу надо сначала создать —
@@ -629,6 +698,9 @@ def enqueue_case_resync(case_id: int, queue: str = "regular") -> int | None:
 
     Очередь по умолчанию regular: ручной прогон не должен вытеснять срочные запросы
     пользователей из urgent.
+
+    countdown — на сколько секунд отложить старт. Нужен ночному обходу, чтобы
+    разнести походы в суд во времени (см. sync_monitored_cases).
     """
     with session_scope() as session:
         case = session.get(Case, case_id)
@@ -643,5 +715,5 @@ def enqueue_case_resync(case_id: int, queue: str = "regular") -> int | None:
 
     # apply_async только ПОСЛЕ коммита: иначе воркер может схватить задачу раньше,
     # чем строка появится в БД (тот же порядок, что в app/api/routes.py).
-    sync_case.apply_async(args=[task_id], queue=queue)
+    sync_case.apply_async(args=[task_id], queue=queue, countdown=countdown)
     return task_id

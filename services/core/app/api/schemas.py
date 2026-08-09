@@ -180,6 +180,9 @@ class CaseDetailResponse(_FromORM):
     status: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    monitoring_enabled: bool = False
+    last_checked_at: Optional[datetime] = None
+    last_changed_at: Optional[datetime] = None
 
     court: CourtOut
     urls: list[CaseUrlOut] = []
@@ -194,3 +197,39 @@ class CaseDetailResponse(_FromORM):
     # Группа связанных дел: id самой группы и id остальных дел в ней.
     case_link_id: Optional[int] = None
     related_case_ids: list[int] = []
+
+
+class CaseSummaryResponse(_FromORM):
+    """Ответ GET /cases/{case_id}/summary: витрина дела без вложенных сущностей.
+
+    Отдельная лёгкая схема нужна клиентскому сервису: он показывает в списке только
+    статус и две даты, а CaseDetailResponse тянет все события, заседания и документы
+    карточки — сотни килобайт на дело.
+    """
+
+    id: int
+    uid: str
+    code: Optional[str] = None
+    status: Optional[str] = None
+    # Дата последней ПРОВЕРКИ — ставится на каждом обходе, даже холостом.
+    last_checked_at: Optional[datetime] = None
+    # Дата последнего ИЗМЕНЕНИЯ на портале. Это и есть «дата обновления дела» для
+    # пользователя; updated_at ниже — служебное поле строки в БД, оно двигается на
+    # каждом обходе (дозаписывается diff_history).
+    last_changed_at: Optional[datetime] = None
+    updated_at: datetime
+    monitoring_enabled: bool = False
+    court: CourtOut
+
+
+class MonitoringRequest(BaseModel):
+    """Тело запроса POST /cases/{case_id}/monitoring."""
+
+    enabled: bool = True
+
+
+class MonitoringResponse(BaseModel):
+    """Ответ POST /cases/{case_id}/monitoring: состояние мониторинга после запроса."""
+
+    case_id: int
+    monitoring_enabled: bool
