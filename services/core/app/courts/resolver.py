@@ -100,9 +100,7 @@ COURT_BY_DOMAIN = {
     KRD_DOMAIN: MsudrfCourtClient,  # 270 мировых судов Краснодарского края
     KRG_DOMAIN: MsudrfCourtClient,  # 53 мировых суда Курганской области
     LO_DOMAIN: MsudrfCourtClient,  # 87 мировых судов Ленинградской области
-    # 62 из 64 мировых судов Липецкой области: два елецких сидят на другом портале
-    # (mirsud.lipetsk.ru) и остаются неподдержанными — см. LPK_DOMAIN.
-    LPK_DOMAIN: MsudrfCourtClient,
+    LPK_DOMAIN: MsudrfCourtClient,  # 64 мировых суда Липецкой области
     # Магаданской области здесь НЕТ намеренно: у неё вторая разметка движка (тип C) и,
     # что важнее, на карточках нет УИД — сохранять дело было бы нечем. Подробности и
     # проверка — в комментарии к MAG_DOMAIN (app/courts/msudrf_court.py).

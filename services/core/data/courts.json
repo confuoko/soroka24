@@ -26492,14 +26492,14 @@
     "name": "Елецкий районный судебный участок № 1 Елецкого районного судебного района Липецкой области",
     "level": "mirsud",
     "region": "Липецкая область",
-    "base_url": "http://1elez@mirsud.lipetsk.ru"
+    "base_url": "https://elec-r1.lpk.msudrf.ru"
   },
   {
     "code": "48MS0013",
     "name": "Елецкий районный судебный участок № 2 Елецкого районного судебного района Липецкой области",
     "level": "mirsud",
     "region": "Липецкая область",
-    "base_url": "http://2elez@mirsud.lipetsk.ru"
+    "base_url": "https://elec-r2.lpk.msudrf.ru"
   },
   {
     "code": "48MS0014",
