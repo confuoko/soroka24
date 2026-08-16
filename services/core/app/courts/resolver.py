@@ -38,6 +38,7 @@ from app.courts.msudrf_court import (
     ARH_DOMAIN,
     AST_DOMAIN,
     BLG_DOMAIN,
+    EAO_DOMAIN,
     MO_DOMAIN,
     VLD_DOMAIN,
     VOL_DOMAIN,
@@ -66,6 +67,10 @@ COURT_BY_DOMAIN = {
     VOL_DOMAIN: MsudrfCourtClient,  # 145 мировых судов Волгоградской области
     VLD_DOMAIN: MsudrfCourtClient,  # 68 мировых судов Вологодской области
     VRN_DOMAIN: MsudrfCourtClient,  # 117 мировых судов Воронежской области
+    # 12 мировых судов Еврейской автономной области. Разметку карточки здесь ещё НЕ
+    # смотрели (портал встретил капчей) — если она окажется второй разметкой движка,
+    # регион надо будет перевести на MsudrfTypeCCourtClient, когда напишут парсер типа C.
+    EAO_DOMAIN: MsudrfCourtClient,
     # 211 мировых судов Санкт-Петербурга. Отдельный движок и единственный хост на весь
     # регион: суд определяется не по нему, а по номеру участка в пути ссылки
     # (CourtRepository.get_by_url).
