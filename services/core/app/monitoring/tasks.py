@@ -360,14 +360,15 @@ def _court_by_participok(region_code: str, participok_no: int) -> CourtRef | Non
 
 
 def _court_by_url(url: str) -> CourtRef | None:
-    """Суд по хосту ссылки на карточку (или None, если его нет в справочнике).
+    """Суд по ссылке на карточку (или None, если его нет в справочнике).
 
-    Так определяется суд дела, пришедшего ссылкой: на msudrf.ru у каждого участка свой
-    поддомен. Хост известен ещё до похода на портал.
+    Так определяется суд дела, пришедшего ссылкой, и известен он ещё до похода на
+    портал. Обычно хватает хоста (на msudrf.ru у каждого участка свой поддомен), но у
+    порталов с одним хостом на весь регион суд ищется по номеру участка из пути —
+    развилку держит CourtRepository.get_by_url.
     """
-    host = (urlsplit(url).hostname or "").lower()
     with session_scope() as session:
-        court = CourtRepository(session).get_by_host(host)
+        court = CourtRepository(session).get_by_url(url)
         return CourtRef(id=court.id, code=court.code) if court is not None else None
 
 
@@ -492,6 +493,15 @@ def _sync_case(celery_task, task_id: int) -> None:
             html = client.fetch_case_html_by_url(source_url)
             uid = client.extract_uid(html)
             label = uid
+            # Первые 8 символов УИД — код суда. Сверяем с тем, который определили по
+            # ссылке: расхождение означает, что ссылка ведёт не туда, куда мы решили,
+            # либо на портале поехала нумерация участков. Не роняем — дело сохранить
+            # всё равно надо, но в логе такое должно быть видно.
+            if url_court is not None and uid[:8] != url_court.code:
+                logger.warning(
+                    "Ссылка %s: суд по ссылке %s, а УИД со страницы указывает на %s",
+                    source_url, url_court.code, uid[:8],
+                )
             _record_uid(task_id, uid)
             cards = [FetchedCard(code=client.extract_case_code(html), html=html)]
             logger.info("По ссылке %s найдено дело %s", source_url, uid)

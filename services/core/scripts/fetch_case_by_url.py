@@ -1,15 +1,18 @@
 """Скрипт-команда: сходить по прямой ссылке на карточку дела.
 
 Проходит весь путь боевого клиента — открывает ссылку через прокси, при необходимости
-разгадывает капчу, забирает HTML карточки и достаёт из него УИД. По УИД проверяет,
-есть ли такой суд в справочнике (первые 8 символов — его код).
+разгадывает капчу (там, где она есть), забирает HTML карточки и достаёт из него УИД.
+Суд ищет в справочнике так же, как это делает задача синхронизации.
 
-Нужен, чтобы отлаживать путь до карточки и копить примеры разметки для парсера типа B,
-не гоняя ради этого очередь Celery.
+Нужен, чтобы отлаживать путь до карточки и копить примеры разметки для парсеров, не
+гоняя ради этого очередь Celery. Работает со всеми порталами, подключёнными к
+резолверу: движок msudrf.ru (тип B) и mirsud.spb.ru (тип D, разбор ещё не написан —
+как раз под сбор образцов).
 
 Запуск (из папки services/core, чтобы резолвился пакет app):
-    python scripts/fetch_case_by_url.py --url https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=429386415&delo_id=1540005
+    python scripts/fetch_case_by_url.py --url "https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=429386415&delo_id=1540005"
     python scripts/fetch_case_by_url.py --url ... --url ... --save-html
+    python scripts/fetch_case_by_url.py --url ... --save-s3     # положить снимок в S3
     python scripts/fetch_case_by_url.py --url ... --proxy http://user:pass@host:port
     python scripts/fetch_case_by_url.py --url ... --no-headless      # посмотреть глазами
 
@@ -33,27 +36,33 @@ from app.browser import lease_proxy, parse_proxy_url  # noqa: E402
 from app.courts import define_court_by_url  # noqa: E402
 from app.models.database import session_scope  # noqa: E402
 from app.repositories import CourtRepository  # noqa: E402
+from app.storage.html_snapshots import save_snapshot  # noqa: E402
 
 HTML_DIR = CORE_ROOT / "html_examples"
 
 
 def _court_name(url: str) -> str:
-    """Название суда из справочника по хосту ссылки (или пометка, что его там нет).
+    """Название суда из справочника по ссылке (или пометка, что его там нет).
 
-    По хосту, а не по УИД: у каждого участка движка msudrf.ru свой поддомен, и именно так
-    суд дела определяет задача синхронизации.
+    Именно get_by_url, а не get_by_host: у порталов с одним хостом на весь регион
+    (Петербург) по хосту суд не определить, там он ищется по номеру участка из пути.
+    Тем же методом суд определяет и задача синхронизации.
     """
-    host = (urlsplit(url).hostname or "").lower()
     with session_scope() as session:
-        court = CourtRepository(session).get_by_host(host)
+        court = CourtRepository(session).get_by_url(url)
         return court.name if court is not None else "НЕТ В СПРАВОЧНИКЕ"
 
 
-def _save_html(url: str, html: str) -> Path:
-    """Сложить страницу в html_examples/ под именем, по которому её потом найти."""
-    case_id = url.rsplit("case_id=", 1)[-1].split("&")[0]
-    host = url.split("//", 1)[-1].split(".", 1)[0]
-    path = HTML_DIR / f"case_{host}_{case_id}.html"
+def _save_html(url: str, html: str, uid: str) -> Path:
+    """Сложить страницу в html_examples/ под именем, по которому её потом найти.
+
+    Имя строим из УИД, а не из адреса: он единственный идентификатор, одинаково
+    осмысленный на всех порталах, и по нему же названа папка снимка в S3. Разбор адреса
+    для этого не годится — у Петербурга в ссылке нет ничего, кроме номера участка и
+    номера дела со слэшем, и файл получал бы имя-хэш.
+    """
+    host = (urlsplit(url).hostname or "unknown-host").split(".", 1)[0]
+    path = HTML_DIR / f"case_{host}_{uid}.html"
     path.write_text(html, encoding="utf-8")
     return path
 
@@ -90,6 +99,11 @@ def main() -> None:
     parser.add_argument(
         "--save-html", action="store_true", help=f"сохранить страницы в {HTML_DIR}"
     )
+    parser.add_argument(
+        "--save-s3",
+        action="store_true",
+        help="положить снимок страницы в S3 (папка — УИД со страницы)",
+    )
     args = parser.parse_args()
 
     proxy = parse_proxy_url(args.proxy) if args.proxy else lease_proxy()
@@ -120,9 +134,15 @@ def main() -> None:
         elapsed = (datetime.utcnow() - started).total_seconds()
         print(f"  [OK ] html: {len(html)} симв., капчи: {_captcha_report(spent)}")
         print(f"  УИД: {uid}")
-        print(f"  суд по хосту {urlsplit(url).hostname}: {_court_name(url)}")
+        print(f"  суд по ссылке: {_court_name(url)}")
         if args.save_html:
-            print(f"  сохранено: {_save_html(url, html)}")
+            print(f"  сохранено: {_save_html(url, html, uid)}")
+        if args.save_s3:
+            # Папка снимка — УИД, он к этому моменту уже прочитан со страницы. Уровень
+            # карточки (card=) не передаём: номер дела для него достаёт клиент, а у
+            # порталов, ради которых скрипт и запускают, разбор ещё не написан.
+            stored = save_snapshot(uid, html, started)
+            print(f"  в S3: {stored['html_key']} ({stored['html_size']} б)")
         print(f"  время: {elapsed:.0f} c\n")
 
     # Ненулевой код возврата, чтобы скрипт годился для проверки в CI/по расписанию.

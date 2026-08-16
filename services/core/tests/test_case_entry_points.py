@@ -183,6 +183,22 @@ def test_unknown_portal_is_rejected() -> None:
     assert is_supported_url("https://mirsud24.ru/case/1") is False
 
 
+def test_spb_portal_is_supported_though_parsing_is_not_written() -> None:
+    """Петербург подключён НАМЕРЕННО, хотя разбор его страниц ещё не написан.
+
+    Так дело можно завести через API, дойти до портала и получить снимок страницы в S3
+    (снимок снимается до разбора) — ради накопления образцов. Падает такая задача уже
+    на разборе. Для Брянска решение обратное: тип C доменов не получил, чтобы не тратить
+    прокси и капчу впустую, — а на mirsud.spb.ru капчи нет и поход бесплатный.
+    """
+    from app.courts.spb_mir_court import SpbMirCourtClient
+
+    url = "https://mirsud.spb.ru/cases/detail/98/?id=2-2983%2F2026-98"
+
+    assert is_supported_url(url) is True
+    assert isinstance(define_court_by_url(url), SpbMirCourtClient)
+
+
 def test_uid_resolves_only_for_portals_with_search() -> None:
     """По УИД ищем только там, где у портала есть поиск по нему.
 
@@ -406,7 +422,7 @@ def test_unknown_court_is_rejected_before_checking_the_portal(monkeypatch) -> No
     monkeypatch.setattr(
         routes,
         "CourtRepository",
-        lambda session: SimpleNamespace(get_by_host=lambda host: None),
+        lambda session: SimpleNamespace(get_by_url=lambda url: None),
     )
     monkeypatch.setattr(
         routes, "is_supported_url", lambda url: pytest.fail("портал проверять рано")
@@ -437,19 +453,21 @@ def test_known_court_on_unsupported_portal_is_named(monkeypatch) -> None:
         routes,
         "CourtRepository",
         lambda session: SimpleNamespace(
-            get_by_host=lambda host: SimpleNamespace(name="Судебный участок № 154")
+            get_by_url=lambda url: SimpleNamespace(name="Судебный участок № 154")
         ),
     )
     monkeypatch.setattr(routes, "is_supported_url", lambda url: False)
     _no_tasks(monkeypatch, routes)
 
+    # Портал взят заведомо неподдержанный: mirsud.spb.ru здесь уже не годится — его
+    # подключили ради сбора образцов страниц.
     answer = routes._sync_by_url(
-        "https://mirsud.spb.ru/court-sites/154/case", force=False, response=Response()
+        "https://mirsud24.ru/case/1", force=False, response=Response()
     )
 
     assert answer.status == "unsupported_court"
     assert "Судебный участок № 154" in answer.message
-    assert "mirsud.spb.ru" in answer.message
+    assert "mirsud24.ru" in answer.message
 
 
 def test_example_link_is_a_real_case_url() -> None:

@@ -29,6 +29,28 @@ def host_of(base_url: Optional[str]) -> Optional[str]:
     return (urlsplit(base_url or "").hostname or "").lower() or None
 
 
+def _participok_in_path_rule(host: Optional[str]):
+    """Как достать номер участка из ссылки на этом портале: (код региона, функция).
+
+    Возвращает None, если портал обычный — то есть суд определяется по хосту.
+
+    Клиент суда импортируется ВНУТРИ функции, и это не небрежность: на уровне модуля
+    получается цикл. app.courts.spb_mir_court тянет app.browser, тот — app.browser.proxy,
+    а он — app.repositories, то есть этот самый пакет. Правило про номер участка в пути
+    при этом должно жить рядом с остальным знанием о портале (там же лежит и разбор
+    ссылки), а не расползаться по репозиторию.
+    """
+    from app.courts import spb_mir_court
+
+    rules = {
+        spb_mir_court.DOMAIN: (
+            spb_mir_court.REGION_CODE,
+            spb_mir_court.participok_from_url,
+        ),
+    }
+    return rules.get(host)
+
+
 def _codes_for_log(courts: list[Court], limit: int = 5) -> str:
     """Коды судов для сообщения в лог — не больше limit штук.
 
@@ -118,6 +140,31 @@ class CourtRepository:
             )
             return None
         return courts[0] if courts else None
+
+    def get_by_url(self, url: str) -> Optional[Court]:
+        """Суд по ссылке на карточку дела (или None).
+
+        Обычно достаточно хоста: у msudrf.ru каждому участку отведён свой поддомен.
+        Но бывают порталы, где весь регион сидит на одном хосте, а номер участка стоит
+        в пути ссылки — так устроен Петербург (211 судов на mirsud.spb.ru). Там
+        get_by_host честно отказывается выбирать из двух сотен совпадений, и суд
+        приходится искать по номеру участка.
+
+        Это точка входа для всего, что определяет суд по ссылке: отдельные вызовы
+        get_by_host снаружи оставляют такие порталы неподдержанными.
+        """
+        host = host_of(url)
+
+        # Порталы с номером участка в пути проверяем ПЕРВЫМИ, не пробуя хост. Хост там
+        # заведомо общий, и get_by_host на нём не просто не сработает — он ещё и напишет
+        # в лог предупреждение о двух сотнях совпадений. На ожидаемом пути это шум.
+        rule = _participok_in_path_rule(host)
+        if rule is not None:
+            region_code, number_from_url = rule
+            number = number_from_url(url)
+            return self.get_by_participok(region_code, number) if number else None
+
+        return self.get_by_host(host)
 
     def sync_from_entries(self, entries: list[dict]) -> tuple[int, int]:
         """Создать/обновить суды по коду из записей JSON-справочника.

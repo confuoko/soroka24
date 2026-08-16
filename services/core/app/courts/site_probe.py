@@ -30,7 +30,9 @@ from app.courts.moscow_mir_court import (
     SEARCH_URL,
     UID_INPUT,
 )
+from app.courts.base import find_uid
 from app.courts.msudrf_court import CAPTCHA_MARK, CASE_CODE_RE
+from app.courts.spb_mir_court import RENDER_TIMEOUT, RENDERED_MARK
 
 # Вердикты пробы. OK и CAPTCHA — успех (прокси до портала доходит), остальное — нет.
 OK = "ok"
@@ -52,6 +54,8 @@ MSUDRF_CASE_URL = (
     "https://369.mo.msudrf.ru/modules.php"
     "?case_id=436712856&delo_id=1540005&name=sud_delo&op=cs"
 )
+# Карточка дела на портале Санкт-Петербурга (участок № 98, суд 78MS0098).
+SPB_CASE_URL = "https://mirsud.spb.ru/cases/detail/98/?id=2-2983%2F2026-98"
 
 
 @dataclass(frozen=True)
@@ -117,6 +121,20 @@ def _run_msudrf(session: ChromiumSession, status: int | None) -> tuple[str, str]
     return ERROR, "открылась не карточка дела"
 
 
+def _run_spb(session: ChromiumSession, status: int | None) -> tuple[str, str]:
+    """Портал Санкт-Петербурга (тип D): карточка дорисовывается фоновой задачей.
+
+    Ждём именно отрисовки: сразу после goto таблицы ещё пустые, и проба на такой
+    странице зеленела бы, ничего на самом деле не проверив. Ветки captcha здесь нет —
+    капчи на портале не бывает.
+    """
+    session.page.wait_for_selector(RENDERED_MARK, timeout=RENDER_TIMEOUT)
+    uid = find_uid(session.content())
+    if uid:
+        return OK, f"УИД {uid}"
+    return ERROR, "карточка отрисовалась, но УИД на ней нет"
+
+
 SITE_PROBES: dict[str, Probe] = {
     "mos-sud": Probe(
         name="mos-sud",
@@ -132,6 +150,13 @@ SITE_PROBES: dict[str, Probe] = {
         # Chromium не откроет страницу вообще (ERR_CERT_COMMON_NAME_INVALID).
         ignore_https_errors=True,
         run=_run_msudrf,
+    ),
+    "spb": Probe(
+        name="spb",
+        url=SPB_CASE_URL,
+        # У mirsud.spb.ru сертификат в порядке — ослаблять проверку незачем.
+        ignore_https_errors=False,
+        run=_run_spb,
     ),
 }
 

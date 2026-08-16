@@ -7,6 +7,7 @@ from app.parsers.base import CaseParser
 from app.parsers.moscow_type_a import MoscowTypeAParser
 from app.parsers.msudrf_type_b import MsudrfTypeBParser
 from app.parsers.msudrf_type_c import MsudrfTypeCParser
+from app.parsers.spb_type_d import SpbTypeDParser
 
 # Соответствие: тип страницы -> класс парсера.
 PARSER_BY_PAGE_TYPE: dict[str, type[CaseParser]] = {
@@ -17,6 +18,11 @@ PARSER_BY_PAGE_TYPE: dict[str, type[CaseParser]] = {
     # parse() падает с NotImplementedError. Ни один клиент суда тип C не отдаёт, так что
     # попасть сюда сейчас неоткуда — строка стоит, чтобы тип был заведён явно.
     "C": MsudrfTypeCParser,
+    # ЗАГЛУШКА: мировые суды Санкт-Петербурга (mirsud.spb.ru). Разбор тоже не написан,
+    # но, в отличие от типа C, портал к резолверу УЖЕ подключён — сюда реально попадают
+    # задачи, и падают здесь намеренно: снимок страницы к этому моменту уже лежит в S3,
+    # ради накопления образцов всё и затевалось (см. app/parsers/spb_type_d.py).
+    "D": SpbTypeDParser,
 }
 
 

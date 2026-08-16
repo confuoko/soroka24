@@ -173,6 +173,45 @@ def test_shared_host_picks_nobody(session, courts) -> None:
     assert CourtRepository(session).get_by_host("463.zz.test") is None
 
 
+# --------------------------------------------- поиск суда по ссылке (хост или участок)
+def test_get_by_url_falls_back_to_host(session, courts) -> None:
+    """Обычный портал: у участка свой поддомен, ничего нового не происходит."""
+    repo = CourtRepository(session)
+
+    assert repo.get_by_url("https://463.zz.test/modules.php?case_id=1").code == "ZZMS0466"
+    assert repo.get_by_url("https://нет-такого.zz.test/case") is None
+
+
+def test_get_by_url_uses_participok_on_a_shared_host(session) -> None:
+    """Петербург: 211 судов на одном хосте, суд берётся из номера участка в пути.
+
+    Проверяем на настоящем справочнике и именно на расходящейся паре: участок № 126 —
+    это код 78MS0124, а 78MS0126 — участок № 128, другой суд. Арифметика по числу из
+    ссылки молча привязала бы дело не туда.
+    """
+    repo = CourtRepository(session)
+    if repo.get_by_code("78MS0124") is None:
+        pytest.skip("справочник судов не залит (data/courts.json)")
+
+    # По хосту суд не определяется — и это не ошибка, а причина существования запасного пути.
+    assert repo.get_by_host("mirsud.spb.ru") is None
+
+    found = repo.get_by_url("https://mirsud.spb.ru/cases/detail/126/?id=2-1557%2F2026-126")
+    assert found.code == "78MS0124"
+    assert participok_no(repo.get_by_code("78MS0126").name) == 128
+
+
+def test_get_by_url_needs_a_case_path_on_a_shared_host(session) -> None:
+    """На общем хосте без номера участка в пути суд по-прежнему не определяется."""
+    repo = CourtRepository(session)
+    if repo.get_by_code("78MS0124") is None:
+        pytest.skip("справочник судов не залит (data/courts.json)")
+
+    assert repo.get_by_url("https://mirsud.spb.ru/court-sites/126") is None
+    # Участка с таким номером в Петербурге нет — придумывать суд нельзя.
+    assert repo.get_by_url("https://mirsud.spb.ru/cases/detail/9999/?id=2-1%2F2026-9999") is None
+
+
 # ------------------------------------------------- таблица результатов поиска Москвы
 def test_results_table_has_one_row_per_case() -> None:
     """На реальной выдаче селектор находит РОВНО одну строку, а не две.
