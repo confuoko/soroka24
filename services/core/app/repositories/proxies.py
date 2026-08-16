@@ -43,6 +43,29 @@ class ProxyRepository:
             self._session.flush()
         return proxy
 
+    def lease_by_id(self, proxy_id: int) -> Optional[Proxy]:
+        """Взять из пула КОНКРЕТНЫЙ прокси по id и пометить его занятым.
+
+        Нужно порталам, до которых доходит не всякий адрес: пул про сайты ничего не
+        знает, и обычный lease() выдал бы случайный, а он получил бы отказ на туннеле.
+
+        Отметку last_used_at ставим, как и при обычной аренде: иначе закреплённый
+        прокси навсегда остался бы «самым давно не использованным» и обычный lease()
+        начал бы выдавать его первым всем остальным порталам.
+
+        None — прокси с таким id нет или он выключен в админке. Вызывающий код должен
+        в этом случае откатиться на обычную аренду, а не идти на портал напрямую.
+        """
+        proxy = self._session.scalar(
+            select(Proxy)
+            .where(Proxy.id == proxy_id, Proxy.enabled.is_(True))
+            .with_for_update(skip_locked=True)
+        )
+        if proxy is not None:
+            proxy.last_used_at = datetime.utcnow()
+            self._session.flush()
+        return proxy
+
     def list_enabled(self) -> list[Proxy]:
         """Все включённые прокси (для проверки пула скриптом check_proxy.py)."""
         return list(

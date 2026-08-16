@@ -148,10 +148,25 @@ def test_str_hides_password() -> None:
 
 
 def test_parse_proxy_url() -> None:
-    """Строку от провайдера разбираем в ProxySettings как есть."""
+    """Строку от провайдера разбираем в ProxySettings как есть.
+
+    explicit=True: строку передают руками, и клиент суда с закреплённым прокси такой
+    выбор не перебивает — иначе флаг --proxy молча перестал бы работать.
+    """
     assert parse_proxy_url("http://user:secret@10.0.0.1:7584") == ProxySettings(
-        scheme="http", host="10.0.0.1", port=7584, username="user", password="secret"
+        scheme="http", host="10.0.0.1", port=7584, username="user", password="secret",
+        explicit=True,
     )
+
+
+def test_proxy_from_the_pool_is_not_explicit() -> None:
+    """А выданный пулом — не explicit: его клиент вправе заменить закреплённым.
+
+    Флаг по умолчанию выключен, и lease_proxy() его не ставит — собирает ProxySettings
+    из полей строки БД. Проверяем именно значение по умолчанию: если однажды оно
+    станет True, клиенты с закреплённым прокси молча перестанут его подставлять.
+    """
+    assert ProxySettings(scheme="http", host="10.0.0.9", port=8000).explicit is False
 
 
 def test_parse_proxy_url_requires_port() -> None:

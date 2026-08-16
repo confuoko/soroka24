@@ -39,10 +39,12 @@ from app.courts.msudrf_court import (
     AST_DOMAIN,
     BLG_DOMAIN,
     EAO_DOMAIN,
+    IWN_DOMAIN,
     MO_DOMAIN,
     VLD_DOMAIN,
     VOL_DOMAIN,
     VRN_DOMAIN,
+    ZBK_DOMAIN,
 )
 from app.courts.msudrf_court import MsudrfCourtClient
 from app.courts.spb_mir_court import DOMAIN as SPB_DOMAIN
@@ -71,6 +73,8 @@ COURT_BY_DOMAIN = {
     # смотрели (портал встретил капчей) — если она окажется второй разметкой движка,
     # регион надо будет перевести на MsudrfTypeCCourtClient, когда напишут парсер типа C.
     EAO_DOMAIN: MsudrfCourtClient,
+    ZBK_DOMAIN: MsudrfCourtClient,  # 68 мировых судов Забайкальского края
+    IWN_DOMAIN: MsudrfCourtClient,  # 62 мировых суда Ивановской области
     # 211 мировых судов Санкт-Петербурга. Отдельный движок и единственный хост на весь
     # регион: суд определяется не по нему, а по номеру участка в пути ссылки
     # (CourtRepository.get_by_url).
