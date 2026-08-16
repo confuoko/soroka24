@@ -39,7 +39,20 @@ from app.courts.msudrf_court import (
     AST_DOMAIN,
     BLG_DOMAIN,
     EAO_DOMAIN,
+    IRK_DOMAIN,
     IWN_DOMAIN,
+    KBR_DOMAIN,
+    KCHR_DOMAIN,
+    KIR_DOMAIN,
+    KLG_DOMAIN,
+    KLN_DOMAIN,
+    KMCH_DOMAIN,
+    KMR_DOMAIN,
+    KRD_DOMAIN,
+    KRG_DOMAIN,
+    KST_DOMAIN,
+    LO_DOMAIN,
+    LPK_DOMAIN,
     MO_DOMAIN,
     VLD_DOMAIN,
     VOL_DOMAIN,
@@ -75,6 +88,24 @@ COURT_BY_DOMAIN = {
     EAO_DOMAIN: MsudrfCourtClient,
     ZBK_DOMAIN: MsudrfCourtClient,  # 68 мировых судов Забайкальского края
     IWN_DOMAIN: MsudrfCourtClient,  # 62 мировых суда Ивановской области
+    IRK_DOMAIN: MsudrfCourtClient,  # 135 мировых судов Иркутской области
+    KBR_DOMAIN: MsudrfCourtClient,  # 50 мировых судов Кабардино-Балкарской Республики
+    KLN_DOMAIN: MsudrfCourtClient,  # 50 мировых судов Калининградской области
+    KLG_DOMAIN: MsudrfCourtClient,  # 55 мировых судов Калужской области
+    KMCH_DOMAIN: MsudrfCourtClient,  # 37 мировых судов Камчатского края
+    KCHR_DOMAIN: MsudrfCourtClient,  # 26 мировых судов Карачаево-Черкесской Республики
+    KMR_DOMAIN: MsudrfCourtClient,  # 147 мировых судов Кемеровской области — Кузбасса
+    KIR_DOMAIN: MsudrfCourtClient,  # 80 мировых судов Кировской области
+    KST_DOMAIN: MsudrfCourtClient,  # 49 мировых судов Костромской области
+    KRD_DOMAIN: MsudrfCourtClient,  # 270 мировых судов Краснодарского края
+    KRG_DOMAIN: MsudrfCourtClient,  # 53 мировых суда Курганской области
+    LO_DOMAIN: MsudrfCourtClient,  # 87 мировых судов Ленинградской области
+    # 62 из 64 мировых судов Липецкой области: два елецких сидят на другом портале
+    # (mirsud.lipetsk.ru) и остаются неподдержанными — см. LPK_DOMAIN.
+    LPK_DOMAIN: MsudrfCourtClient,
+    # Магаданской области здесь НЕТ намеренно: у неё вторая разметка движка (тип C) и,
+    # что важнее, на карточках нет УИД — сохранять дело было бы нечем. Подробности и
+    # проверка — в комментарии к MAG_DOMAIN (app/courts/msudrf_court.py).
     # 211 мировых судов Санкт-Петербурга. Отдельный движок и единственный хост на весь
     # регион: суд определяется не по нему, а по номеру участка в пути ссылки
     # (CourtRepository.get_by_url).
