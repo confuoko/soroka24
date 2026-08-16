@@ -21,6 +21,7 @@ _UPDATABLE_FIELDS = (
     "incoming_number",
     "receipt_date",
     "registration_date",
+    "accepted_date",
     "first_instance_date",
     "first_instance_decision",
     "decision_effective_date",

@@ -76,6 +76,31 @@ def test_different_case_id_is_a_different_card() -> None:
     assert canonical_case_url(other) != canonical_case_url(CASE_URL)
 
 
+# У Петербурга номер дела стоит в параметре id, а путь задаёт ТОЛЬКО участок.
+SPB_URL = "https://mirsud.spb.ru/cases/detail/98/?id=2-2976%2F2026-98"
+
+
+def test_spb_case_number_survives_canonicalization() -> None:
+    """Параметр id у Петербурга значащий: без него дела участка схлопнутся в одно.
+
+    Ловушка не теоретическая: id не входил в белый список, и два дела участка № 98
+    давали один канонический адрес «/cases/detail/98». Поскольку url в case_url
+    уникален глобально, второе дело после этого не сохранялось вовсе — задача падала
+    с «адрес уже закреплён за карточкой».
+    """
+    other = SPB_URL.replace("2-2976", "2-2995")
+
+    assert canonical_case_url(SPB_URL) != canonical_case_url(other)
+    assert "2-2976" in canonical_case_url(SPB_URL)
+
+
+def test_spb_url_still_drops_the_noise() -> None:
+    """При этом мусор и хвостовой слеш у Петербурга убираются как везде."""
+    assert canonical_case_url(SPB_URL + "&utm_source=mail#top") == canonical_case_url(
+        SPB_URL
+    )
+
+
 # ----------------------------------------------------------- адреса одной карточки
 def test_url_is_stored_in_canonical_form(session, court) -> None:
     """В таблицу попадает канонический вид, как бы адрес ни прислали."""

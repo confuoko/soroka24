@@ -174,6 +174,9 @@ class CaseDetailResponse(_FromORM):
     incoming_number: Optional[str] = None
     receipt_date: Optional[date] = None
     registration_date: Optional[date] = None
+    # «Дата принятия к производству» — пока только у гражданских дел Петербурга.
+    # Стоит рядом с receipt_date на одной карточке и может от неё отличаться.
+    accepted_date: Optional[date] = None
     first_instance_date: Optional[date] = None
     first_instance_decision: Optional[str] = None
     decision_effective_date: Optional[date] = None

@@ -97,6 +97,31 @@ def test_value_disappearing_from_page_is_reported(session, court) -> None:
     assert case.receipt_date is None
 
 
+def test_acceptance_date_is_stored_and_diffed(session, court) -> None:
+    """«Дата принятия к производству» — самостоятельное поле, живёт рядом с поступлением.
+
+    Обе даты стоят на одной карточке Петербурга и могут расходиться, поэтому важно,
+    что accepted_date обновляется и попадает в дифф: сдвиг принятия к производству
+    пользователь должен увидеть, а не получить молча перезаписанное значение.
+    """
+    repo = CaseRepository(session)
+    repo.upsert_by_uid_court_code(
+        CASE_UID, court, CASE_CODE, dict(FIRST_PARSE, accepted_date=date(2026, 6, 8))
+    )
+    session.flush()
+
+    case, changes = repo.upsert_by_uid_court_code(
+        CASE_UID, court, CASE_CODE, dict(FIRST_PARSE, accepted_date=date(2026, 6, 11))
+    )
+
+    by_field = {c.field: c for c in changes}
+    assert by_field["accepted_date"].old == date(2026, 6, 8)
+    assert by_field["accepted_date"].new == date(2026, 6, 11)
+    # Дата поступления при этом своя и не поехала.
+    assert case.receipt_date == date(2026, 6, 8)
+    assert case.accepted_date == date(2026, 6, 11)
+
+
 def test_missing_key_leaves_field_untouched(session, court) -> None:
     """Ключа нет в data вообще → поле не трогаем и в дифф не пишем.
 

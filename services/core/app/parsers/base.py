@@ -29,6 +29,11 @@ class CaseParser(ABC):
               "code": "02-0634/2/2026" | None,          # «Номер дела [~ материала]»
               "receipt_date": date | None,              # «Дата поступления»
               "registration_date": date | None,         # «Дата регистрации»
+              # «Дата принятия к производству» — отдаёт только тип D (Петербург), и
+              # только у гражданских дел. От receipt_date отличается по существу:
+              # обе стоят на одной карточке и расходятся, если заявление приняли
+              # не в день поступления.
+              "accepted_date": date | None,
               "first_instance_date": date | None,
               "first_instance_decision": "Удовлетворено, 21.05.2026" | None,
               "decision_effective_date": date | None,
