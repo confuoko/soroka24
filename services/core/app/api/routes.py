@@ -10,6 +10,7 @@ from app.models.database import session_scope
 from app.monitoring.tasks import sync_case
 from app.repositories import CaseRepository, CourtRepository, SearchTaskRepository
 from app.validators import (
+    is_synthetic_uid,
     looks_like_url,
     normalize_uid,
     normalize_url,
@@ -226,7 +227,9 @@ def get_search_task(task_id: int) -> SearchTaskResponse:
         # Собираем ответ вручную (пока атрибуты доступны в открытой сессии).
         return SearchTaskResponse(
             task_id=task.id,
-            uid=task.uid,
+            # Самодельный ключ карточки (у дел без УИД на портале) наружу не отдаём —
+            # как и в карточке дела, см. Case.public_uid.
+            uid=None if task.uid and is_synthetic_uid(task.uid) else task.uid,
             source_url=task.source_url,
             status=task.status,
             case_id=task.case_id,

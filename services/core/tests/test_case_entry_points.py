@@ -18,7 +18,13 @@ from app.courts import (
 )
 from app.models.database import SearchStatus, SearchTask
 from app.repositories import SearchTaskRepository
-from app.validators import looks_like_url, validate_url
+from app.validators import (
+    is_synthetic_uid,
+    looks_like_url,
+    synthetic_uid,
+    validate_uid,
+    validate_url,
+)
 
 CASE_URL = (
     "https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs"
@@ -156,6 +162,17 @@ def test_voronezh_url_resolves_to_msudrf_client() -> None:
         assert isinstance(define_court_by_url(url), MsudrfCourtClient)
 
 
+def test_sakha_url_resolves_to_msudrf_client() -> None:
+    """Республика Саха (Якутия) — 63 суда, поддомены sakhaN.
+
+    Регион подключён, хотя у архивных дел портала УИД на карточке нет вовсе: такие
+    карточки сохраняются под самодельным ключом от ссылки (synthetic_uid). До этого
+    единственным препятствием к подключению региона было именно отсутствие УИД.
+    """
+    for url in ("https://sakha45.yak.msudrf.ru/modules.php?name=sud_delo", "http://sakha1.yak.msudrf.ru/y"):
+        assert isinstance(define_court_by_url(url), MsudrfCourtClient)
+
+
 def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
     """Тот же движок в чужом регионе пока не обслуживаем.
 
@@ -230,6 +247,31 @@ def test_uid_is_found_in_page_text() -> None:
     """Формат УИД общероссийский, поэтому поиск один на все порталы."""
     assert find_uid(f"<td>Уникальный идентификатор дела</td><td>{UID}</td>") == UID
     assert find_uid("<html>ничего похожего</html>") is None
+
+
+def test_synthetic_uid_is_one_per_case_and_not_a_real_uid() -> None:
+    """Самодельный ключ карточки: одинаков для всех видов одной ссылки и не похож на УИД.
+
+    Считается от канонической формы адреса, поэтому http/https, переставленные параметры
+    и лишний хвост дают ОДИН ключ — иначе одна карточка размножилась бы в базе. И он
+    заведомо не проходит формат УИД: по значению видно, что портал УИД не присваивал.
+    """
+    same = {
+        synthetic_uid("14MS0054", "https://sakha45.yak.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1300565&delo_id=1540005"),
+        synthetic_uid("14MS0054", "http://sakha45.yak.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1300565&delo_id=1540005"),
+        synthetic_uid("14MS0054", "https://sakha45.yak.msudrf.ru/modules.php?delo_id=1540005&case_id=1300565&op=cs&name=sud_delo&utm_source=mail"),
+    }
+    assert len(same) == 1
+
+    key = same.pop()
+    assert key.startswith("nouid-14MS0054-")
+    assert is_synthetic_uid(key)
+    assert validate_uid(key) is False
+    # Другое дело того же участка — другой ключ.
+    assert key != synthetic_uid(
+        "14MS0054",
+        "https://sakha45.yak.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1300566&delo_id=1540005",
+    )
 
 
 # ------------------------------------------------------------------ задача по ссылке

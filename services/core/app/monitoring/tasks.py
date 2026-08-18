@@ -44,6 +44,7 @@ from app.courts import (
     define_court_by_uid,
     define_court_by_url,
 )
+from app.courts.base import find_uid
 from app.models.database import Case, session_scope
 from app.monitoring.case_update import CaseChanges, update_case
 from app.monitoring.parse_history import (
@@ -63,6 +64,7 @@ from app.repositories import (
     SearchTaskRepository,
 )
 from app.storage import is_failure_key, save_snapshot, snapshot_sha256, url_label
+from app.validators import is_synthetic_uid, synthetic_uid
 from app.storage.html_snapshots import card_folder
 
 logger = get_task_logger(__name__)
@@ -372,6 +374,52 @@ def _court_by_url(url: str) -> CourtRef | None:
         return CourtRef(id=court.id, code=court.code) if court is not None else None
 
 
+def _resolve_card_uid(html: str, source_url: str, url_court: CourtRef) -> str:
+    """Чем опознавать карточку, пришедшую ссылкой: УИД со страницы или самодельный ключ.
+
+    Порядок такой:
+
+    1. Карточка по этой ссылке в базе уже есть — берём ЕЁ идентификатор и не меняем его
+       никогда. Это главное, что делает самодельный ключ безопасным: портал может позже
+       дозаполнить УИД у дела, а от ключа карточки зависят uid событий, документов,
+       заседаний и местонахождений (Case.card_key) и путь снапшотов в S3. Смени мы ключ —
+       дочерние строки перестали бы узнаваться и поехали бы дубли.
+    2. На странице есть настоящий УИД — берём его. Он сквозной и связывает карточки одного
+       дела в разных инстанциях, поэтому предпочтителен всегда, когда есть.
+    3. УИД на странице нет вовсе (архивные дела движка msudrf.ru, Магаданская область) —
+       считаем ключ сами от ссылки: synthetic_uid (app/validators.py).
+
+    Доказательство того, что открылась именно карточка, — НЕ отсутствие УИД (раньше было
+    так), а номер дела: его достаёт client.extract_case_code, и он падает с CaseNotFound,
+    если заголовка «ДЕЛО № …» на странице нет.
+    """
+    with session_scope() as session:
+        known = CaseRepository(session).get_by_url(source_url)
+        known_uid = known.uid if known is not None else None
+
+    page_uid = find_uid(html)
+
+    if known_uid is not None:
+        if page_uid is not None and page_uid != known_uid:
+            # Чаще всего это ровно тот случай, ради которого п.1 и написан: карточку
+            # заводили, когда УИД на странице не было, а теперь портал его дозаполнил.
+            logger.warning(
+                "Ссылка %s: на странице УИД %s, а ключ карточки остаётся %s",
+                source_url, page_uid, known_uid,
+            )
+        return known_uid
+
+    if page_uid is not None:
+        return page_uid
+
+    uid = synthetic_uid(url_court.code, source_url)
+    logger.info(
+        "Ссылка %s: УИД на странице нет — карточка сохраняется под ключом %s",
+        source_url, uid,
+    )
+    return uid
+
+
 def _record_uid(task_id: int, uid: str) -> None:
     """Записать в задачу УИД, найденный на странице дела.
 
@@ -491,19 +539,29 @@ def _sync_case(celery_task, task_id: int) -> None:
                 source_url, proxy=proxy, on_captcha_attempt=on_captcha
             )
             html = client.fetch_case_html_by_url(source_url)
-            uid = client.extract_uid(html)
+            # Номер дела достаём ПЕРВЫМ: он и есть доказательство, что открылась карточка,
+            # а не страница «дело снято с публикации» или поехавшая разметка. Раньше эту
+            # роль играл УИД, но его на карточке может не быть вовсе — см.
+            # _resolve_card_uid.
+            code = client.extract_case_code(html)
+            uid = _resolve_card_uid(html, source_url, url_court)
             label = uid
             # Первые 8 символов УИД — код суда. Сверяем с тем, который определили по
             # ссылке: расхождение означает, что ссылка ведёт не туда, куда мы решили,
             # либо на портале поехала нумерация участков. Не роняем — дело сохранить
-            # всё равно надо, но в логе такое должно быть видно.
-            if url_court is not None and uid[:8] != url_court.code:
+            # всё равно надо, но в логе такое должно быть видно. У самодельного ключа
+            # сверять нечего: код суда в него и подставлен из справочника.
+            if (
+                url_court is not None
+                and not is_synthetic_uid(uid)
+                and uid[:8] != url_court.code
+            ):
                 logger.warning(
                     "Ссылка %s: суд по ссылке %s, а УИД со страницы указывает на %s",
                     source_url, url_court.code, uid[:8],
                 )
             _record_uid(task_id, uid)
-            cards = [FetchedCard(code=client.extract_case_code(html), html=html)]
+            cards = [FetchedCard(code=code, html=html)]
             logger.info("По ссылке %s найдено дело %s", source_url, uid)
         else:
             logger.info("Дело %s: идём через прокси %s", uid, proxy or "напрямую")

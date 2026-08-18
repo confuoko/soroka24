@@ -12,6 +12,11 @@
   * mo_case_5_422334200.html   — уголовное со вкладкой «СУДЕБНЫЙ АКТ» и вступлением в силу
   * mo_case_148_434639708.html — КоАП: шапка «Результат», переставленные колонки сторон
   * mo_case_5_436673426.html   — КоАП нерассмотренный: ни результата, ни дат в движении
+
+Одна фикстура — не из Московской области: разметка у движка общая, а вот УИД на
+карточке есть не всегда.
+  * case_sakha45_nouid-14MS0054-972273874cab.html — Якутия, архивное дело 2011 года:
+    УИД на карточке нет вовсе, метки те же (тип B)
 """
 from datetime import date
 from pathlib import Path
@@ -225,3 +230,32 @@ def test_absent_sections_are_always_empty_lists() -> None:
     assert result["place_history"] == []
     assert result["court_sessions"] == []
     assert result["documents"] == []
+
+
+def test_archive_card_without_uid_parses_fully() -> None:
+    """Карточка без УИД разбирается штатным парсером — не хватает только УИД.
+
+    Дело 2011 года на sakha45.yak.msudrf.ru: УИД начали присваивать позже, и на странице
+    его нет ни строкой, ни меткой. Разметка при этом обычная, типа B, поэтому парсер
+    трогать не пришлось — идентификатор такой карточке считает сервис
+    (synthetic_uid в app/validators.py), а не парсер.
+    """
+    card = _parse("case_sakha45_nouid-14MS0054-972273874cab.html")
+
+    assert card["category"].startswith("О защите прав потребителей")
+    assert card["judge_names"] == ["Ступина Надежда Викторовна"]
+    assert card["first_instance_date"] == date(2011, 5, 13)
+    assert card["first_instance_decision"] == "Иск (заявление) удовлетворен частично"
+    assert card["status"] == "Решение по существу"
+    assert card["sides"] == [
+        {"role": "Истец", "full_name": "Егоров Александр Николаевич"},
+        {"role": "Ответчик", "full_name": 'ОАО АК "Якутия"'},
+    ]
+    assert [event["state_description"] for event in card["events"]] == [
+        "Ознакомление с материалами",
+        "Подготовка к судебному разбирательству",
+        "Судебное заседание",
+        "Судебное заседание",
+        "Решение по существу",
+    ]
+    assert card["events"][0]["event_date"] == date(2011, 4, 29)

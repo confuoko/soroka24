@@ -15,9 +15,11 @@ from celery.exceptions import Retry
 from sqlalchemy import delete, select
 
 from app.captcha import ATTEMPT_SOLVED, CaptchaAttempt
+from app.courts import CaseNotFound
 from app.models.database import CaptchaSolve, SearchStatus, SearchTask, session_scope
 from app.monitoring import tasks
 from app.repositories import SearchTaskRepository
+from app.validators import is_synthetic_uid, synthetic_uid
 
 CASE_UID = "77MS0002-01-2026-000003-33"
 CASE_URL = (
@@ -198,10 +200,10 @@ def test_url_task_discovers_uid_and_saves_link(url_task_id, url_court, monkeypat
 
         def fetch_case_html_by_url(self, url):
             recorded["fetched"] = url
-            return "<html>карточка</html>"
-
-        def extract_uid(self, html):
-            return URL_CASE_UID
+            # УИД должен стоять В РАЗМЕТКЕ: задача читает его со страницы (find_uid), а
+            # не спрашивает у клиента, — иначе карточку без УИД нечем было бы отличить
+            # от страницы, которую портал отдал вместо дела.
+            return f"<html>карточка, УИД {URL_CASE_UID}</html>"
 
         def extract_case_code(self, html):
             return "2-1585/2026"
@@ -251,6 +253,114 @@ def test_url_task_discovers_uid_and_saves_link(url_task_id, url_court, monkeypat
     # УИД дописан в задачу сразу после похода — виден в статусе, даже если разбор упал.
     with session_scope() as session:
         assert session.get(SearchTask, url_task_id).uid == URL_CASE_UID
+
+
+def _client_returning(html: str, code: str = "2-370/4520"):
+    """Клиент-заглушка, отдающий заранее заданную разметку карточки."""
+
+    class _Client:
+        page_type = "B"
+
+        def fetch_case_html_by_url(self, url):
+            return html
+
+        def extract_case_code(self, html_arg):
+            return code
+
+        def parse(self, html_arg):
+            return {"status": "Рассмотрено"}
+
+    return _Client()
+
+
+def _run_url_task_capturing_uid(task_row_id: int, monkeypatch, client) -> dict:
+    """Прогнать задачу по ссылке до записи дела и вернуть то, с чем её позвали."""
+    captured = {}
+
+    def _update_case(session, uid, data, court, code):
+        captured["uid"] = uid
+        captured["code"] = code
+        raise _StopBeforeWrite
+
+    monkeypatch.setattr(
+        tasks, "define_court_by_url", lambda url, proxy=None, **kw: client
+    )
+    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: (None, False))
+    monkeypatch.setattr(tasks, "update_case", _update_case)
+
+    with pytest.raises(_StopBeforeWrite):
+        tasks._sync_case(_StubTask(retries=0), task_row_id)
+
+    return captured
+
+
+def test_card_without_uid_gets_synthetic_key(url_task_id, url_court, monkeypatch) -> None:
+    """УИД на карточке нет вовсе → ключ считаем сами от ссылки, дело сохраняется.
+
+    Так устроены архивные дела движка msudrf.ru (УИД начали присваивать примерно с 2021
+    года) и целые регионы вроде Магаданской области. Раньше такая карточка отсекалась
+    окончательной ошибкой «На странице нет уникального идентификатора дела».
+    """
+    client = _client_returning("<html>Дело № 2-370/4520, УИД тут нет</html>")
+
+    captured = _run_url_task_capturing_uid(url_task_id, monkeypatch, client)
+
+    assert captured["uid"] == synthetic_uid(url_court.code, CASE_URL)
+    assert is_synthetic_uid(captured["uid"])
+    # Ключ детерминирован: та же ссылка в другом виде даёт то же значение.
+    assert captured["uid"] == synthetic_uid(
+        url_court.code, CASE_URL.replace("https://", "http://")
+    )
+
+
+def test_synthetic_key_survives_uid_appearing_later(
+    url_task_id, url_court, monkeypatch
+) -> None:
+    """Портал дозаполнил УИД у уже сохранённой карточки → ключ карточки НЕ меняем.
+
+    Иначе поехали бы uid событий, документов и заседаний (они считаются от Case.card_key)
+    и путь снапшотов в S3: дочерние строки перестали бы узнаваться и продублировались.
+    """
+    known_uid = synthetic_uid(url_court.code, CASE_URL)
+    monkeypatch.setattr(
+        tasks,
+        "CaseRepository",
+        lambda session: SimpleNamespace(get_by_url=lambda url: SimpleNamespace(uid=known_uid)),
+    )
+    client = _client_returning(f"<html>Дело, теперь с УИД {URL_CASE_UID}</html>")
+
+    captured = _run_url_task_capturing_uid(url_task_id, monkeypatch, client)
+
+    assert captured["uid"] == known_uid
+
+
+def test_page_without_case_number_is_still_a_final_failure(
+    url_task_id, url_court, monkeypatch
+) -> None:
+    """Открылась не карточка → окончательный отказ.
+
+    Раньше эту роль играло отсутствие УИД; теперь доказательство карточки — номер дела в
+    заголовке, и проверка должна остаться такой же строгой.
+    """
+
+    class _Client:
+        page_type = "B"
+
+        def fetch_case_html_by_url(self, url):
+            return "<html>дело снято с публикации</html>"
+
+        def extract_case_code(self, html):
+            raise CaseNotFound("На странице нет номера дела")
+
+    monkeypatch.setattr(
+        tasks, "define_court_by_url", lambda url, proxy=None, **kw: _Client()
+    )
+
+    tasks._sync_case(_StubTask(retries=0), url_task_id)
+
+    status, last_error, _ = _status(url_task_id)
+    assert status is SearchStatus.FAILED
+    assert "номера дела" in last_error
 
 
 def test_url_task_fails_when_host_is_not_in_reference(url_task_id, monkeypatch) -> None:

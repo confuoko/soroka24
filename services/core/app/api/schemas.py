@@ -7,7 +7,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.database import CourtLevel, SearchStatus, SideType
 
@@ -168,7 +168,10 @@ class CaseDetailResponse(_FromORM):
     """Ответ GET /cases/{case_id}: дело со всеми привязанными сущностями."""
 
     id: int
-    uid: str
+    # УИД дела. None, если портал не присвоил делу УИД (архивные дела, отдельные
+    # регионы): внутри у такой карточки ключ, посчитанный от ссылки, но наружу он не
+    # уходит — читаем не Case.uid, а Case.public_uid.
+    uid: Optional[str] = Field(default=None, validation_alias="public_uid")
     code: Optional[str] = None
     application_number: Optional[str] = None
     incoming_number: Optional[str] = None
@@ -213,7 +216,10 @@ class CaseSummaryResponse(_FromORM):
     """
 
     id: int
-    uid: str
+    # УИД дела. None, если портал не присвоил делу УИД (архивные дела, отдельные
+    # регионы): внутри у такой карточки ключ, посчитанный от ссылки, но наружу он не
+    # уходит — читаем не Case.uid, а Case.public_uid.
+    uid: Optional[str] = Field(default=None, validation_alias="public_uid")
     code: Optional[str] = None
     status: Optional[str] = None
     # Дата последней ПРОВЕРКИ — ставится на каждом обходе, даже холостом.

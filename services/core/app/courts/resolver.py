@@ -70,6 +70,7 @@ from app.courts.msudrf_court import (
     VLD_DOMAIN,
     VOL_DOMAIN,
     VRN_DOMAIN,
+    YAK_DOMAIN,
     ZBK_DOMAIN,
 )
 from app.courts.msudrf_court import MsudrfCourtClient
@@ -133,6 +134,10 @@ COURT_BY_DOMAIN = {
     # окажется, что это вторая разметка движка, регион надо будет перевести на
     # MsudrfTypeCCourtClient, когда напишут парсер типа C.
     ING_DOMAIN: MsudrfCourtClient,
+    # 63 мировых суда Республики Саха (Якутия). Разметка типа B проверена на живой
+    # карточке, но у архивных дел портала УИД на карточке нет вовсе — такие карточки
+    # сохраняются под самодельным ключом от ссылки (см. synthetic_uid в app/validators.py).
+    YAK_DOMAIN: MsudrfCourtClient,
     # Магаданской области здесь НЕТ намеренно: у неё вторая разметка движка (тип C) и,
     # что важнее, на карточках нет УИД — сохранять дело было бы нечем. Подробности и
     # проверка — в комментарии к MAG_DOMAIN (app/courts/msudrf_court.py).

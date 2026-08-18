@@ -34,15 +34,17 @@ sys.path.insert(0, str(CORE_ROOT))
 
 from app.browser import lease_proxy, parse_proxy_url  # noqa: E402
 from app.courts import define_court_by_url  # noqa: E402
+from app.courts.base import find_uid  # noqa: E402
 from app.models.database import session_scope  # noqa: E402
 from app.repositories import CourtRepository  # noqa: E402
 from app.storage.html_snapshots import save_snapshot  # noqa: E402
+from app.validators import synthetic_uid  # noqa: E402
 
 HTML_DIR = CORE_ROOT / "html_examples"
 
 
-def _court_name(url: str) -> str:
-    """Название суда из справочника по ссылке (или пометка, что его там нет).
+def _court(url: str) -> tuple[str, str | None]:
+    """(название суда, код) из справочника по ссылке; название-пометка, если суда там нет.
 
     Именно get_by_url, а не get_by_host: у порталов с одним хостом на весь регион
     (Петербург) по хосту суд не определить, там он ищется по номеру участка из пути.
@@ -50,7 +52,9 @@ def _court_name(url: str) -> str:
     """
     with session_scope() as session:
         court = CourtRepository(session).get_by_url(url)
-        return court.name if court is not None else "НЕТ В СПРАВОЧНИКЕ"
+        if court is None:
+            return "НЕТ В СПРАВОЧНИКЕ", None
+        return court.name, court.code
 
 
 def _save_html(url: str, html: str, uid: str) -> Path:
@@ -122,9 +126,13 @@ def main() -> None:
             on_captcha_attempt=spent.append,
         )
         started = datetime.utcnow()
+        court_name, court_code = _court(url)
         try:
             html = client.fetch_case_html_by_url(url)
-            uid = client.extract_uid(html)
+            # Тем же правилом, что и задача синхронизации: УИД со страницы, а если его там
+            # нет вовсе (архивные дела движка) — самодельный ключ от ссылки. Иначе скрипт
+            # падал бы ровно на тех карточках, ради сбора которых его и запускают.
+            uid = find_uid(html) or synthetic_uid(court_code or "unknown", url)
         except Exception as exc:
             failed += 1
             print(f"  [FAIL] {type(exc).__name__}: {str(exc).splitlines()[0][:160]}")
@@ -134,7 +142,7 @@ def main() -> None:
         elapsed = (datetime.utcnow() - started).total_seconds()
         print(f"  [OK ] html: {len(html)} симв., капчи: {_captcha_report(spent)}")
         print(f"  УИД: {uid}")
-        print(f"  суд по ссылке: {_court_name(url)}")
+        print(f"  суд по ссылке: {court_name}")
         if args.save_html:
             print(f"  сохранено: {_save_html(url, html, uid)}")
         if args.save_s3:
