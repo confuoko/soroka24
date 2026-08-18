@@ -93,10 +93,16 @@ def test_type_c_is_reachable_from_the_courts_that_need_it() -> None:
         ("case_sakha45_nouid-14MS0054-972273874cab.html", "B"),
         ("case_3sev_nouid-57MS0035-faca1208385d.html", "B"),
         ("case_elec-r1_48MS0012-01-2026-001030-63.html", "B"),
-        # Тип C: Пермский край и Адыгея.
+        ("case_abakan1_19MS0001-01-2026-004064-29.html", "B"),  # Хакасия
+        ("case_okt6_61MS0033-01-2026-002493-56.html", "B"),     # Ростовская область
+        ("case_10_nouid-65MS0010-33a3e9527ac3.html", "B"),      # Сахалин
+        ("case_bond_nouid-68MS0001-909bec32420a.html", "B"),    # Тамбов, материал
+        # Тип C: Пермский край, Адыгея, Тыва, Рязанская область.
         ("case_96_nouid-59MS0096-8ea6caa0770d.html", "C"),
         ("case_maikop1_nouid-01MS0001-049286050778.html", "C"),
         ("case_adg1_nouid-01MS0022-7c5751b4a3f0.html", "C"),
+        ("case_kizil1_nouid-17MS0001-21378c2ab9c5.html", "C"),
+        ("case_57_nouid-62MS0068-c95d1c425ddd.html", "C"),
     ],
 )
 def test_page_type_is_detected_from_the_markup(filename, expected) -> None:

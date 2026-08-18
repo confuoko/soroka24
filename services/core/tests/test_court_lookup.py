@@ -155,6 +155,33 @@ def test_court_is_found_by_host(session, courts) -> None:
     assert repo.get_by_host("") is None
 
 
+def test_host_is_found_in_any_spelling_of_the_participok_label(session, courts) -> None:
+    """Метку участка отделяют от домена региона точкой, дефисом или ничем — суд один и тот же.
+
+    В справочнике так и есть: 69MS0045 Тверской области записан склеенно
+    (26twr.msudrf.ru), а ссылки на него присылают в точечной форме — портал отвечает по
+    обоим именам. Пока сверка была строго точной, такой суд не находился ни по одной
+    ссылке, и справочник приходилось бы править под каждый подобный случай.
+    """
+    glued = Court(
+        code="ZZMS0026",
+        name="Судебный участок № 26 Тестовой области",
+        level=CourtLevel.MIRSUD,
+        region="Тестовый регион",
+        base_url="http://26zz.test.ru",
+    )
+    session.add(glued)
+    session.flush()
+    repo = CourtRepository(session)
+
+    # Справочник знает склеенное написание, а ссылка приходит в любом из трёх.
+    assert repo.get_by_host("26zz.test.ru").code == "ZZMS0026"
+    assert repo.get_by_host("26.zz.test.ru").code == "ZZMS0026"
+    assert repo.get_by_host("26-zz.test.ru").code == "ZZMS0026"
+    # Чужой участок того же региона от этого не находится.
+    assert repo.get_by_host("27.zz.test.ru") is None
+
+
 def test_shared_host_picks_nobody(session, courts) -> None:
     """Общий портал (один хост на сотни судов) суд не определяет.
 

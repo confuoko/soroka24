@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.database import Court, CourtLevel
+from app.validators import host_variants
 
 logger = logging.getLogger(__name__)
 
@@ -118,10 +119,26 @@ class CourtRepository:
         поддомен. Как и в get_by_participok, при нескольких совпадениях суд не выбираем —
         общие порталы вроде mos-sud.ru делят хост на сотни судов, и по нему там ничего
         определить нельзя.
+
+        Хост ищем сначала как есть, а если не нашли — в остальных его написаниях
+        (host_variants в app/validators.py): метку участка отделяют от домена региона
+        точкой, дефисом или не отделяют вовсе, и в справочнике с ссылкой они совпадают не
+        всегда. Так, 69MS0045 записан как 26twr.msudrf.ru, а ссылку присылают на
+        26.twr.msudrf.ru — портал отвечает по обоим именам. Порядок важен ровно потому же,
+        почему и в резолвере: точное совпадение обязано выигрывать у перебора.
         """
         normalized = (host or "").lower()
         if not normalized:
             return None
+
+        for candidate in host_variants(normalized):
+            found = self._get_by_exact_host(candidate)
+            if found is not None:
+                return found
+        return None
+
+    def _get_by_exact_host(self, normalized: str) -> Optional[Court]:
+        """Суд, у которого хост в справочнике совпадает с normalized точно (или None)."""
 
         # Грубый отбор по подстроке в адресе, точная сверка — по разобранному хосту:
         # LIKE поймал бы и «22.mo.msudrf.ru» в ссылке на «122.mo.msudrf.ru».

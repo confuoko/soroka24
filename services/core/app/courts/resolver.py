@@ -44,6 +44,7 @@ from app.courts.msudrf_court import (
     BLG_DOMAIN,
     BUR_DOMAIN,
     DAG_DOMAIN,
+    HAK_DOMAIN,
     EAO_DOMAIN,
     ING_DOMAIN,
     IRK_DOMAIN,
@@ -72,6 +73,16 @@ from app.courts.msudrf_court import (
     PNZ_DOMAIN,
     PRM_DOMAIN,
     RALT_DOMAIN,
+    RIZ_DOMAIN,
+    ROS_DOMAIN,
+    SAH_DOMAIN,
+    SAM_DOMAIN,
+    SAR_DOMAIN,
+    SML_DOMAIN,
+    SVD_DOMAIN,
+    TMB_DOMAIN,
+    TUVA_DOMAIN,
+    TWR_DOMAIN,
     VLD_DOMAIN,
     VOL_DOMAIN,
     VRN_DOMAIN,
@@ -81,6 +92,7 @@ from app.courts.msudrf_court import (
 from app.courts.msudrf_court import MsudrfCourtClient, MsudrfTypeCCourtClient
 from app.courts.spb_mir_court import DOMAIN as SPB_DOMAIN
 from app.courts.spb_mir_court import SpbMirCourtClient
+from app.validators import host_variants
 
 # Соответствие: префикс УИД -> класс клиента суда.
 # Здесь только порталы с поиском по УИД. Для остальных регионов дело можно завести
@@ -140,6 +152,24 @@ COURT_BY_DOMAIN = {
     # 24 мировых суда Республики Адыгея — тоже вторая вёрстка движка, тип C, но таблица
     # «Движения дела» на одну колонку короче, чем в Пермском крае.
     ADG_DOMAIN: MsudrfTypeCCourtClient,
+    HAK_DOMAIN: MsudrfCourtClient,  # 35 мировых судов Республики Хакасия
+    # 26 мировых судов Республики Тыва — вторая вёрстка движка, тип C.
+    TUVA_DOMAIN: MsudrfTypeCCourtClient,
+    ROS_DOMAIN: MsudrfCourtClient,  # 230 мировых судов Ростовской области
+    # 70 мировых судов Рязанской области — тоже тип C.
+    RIZ_DOMAIN: MsudrfTypeCCourtClient,
+    SAM_DOMAIN: MsudrfCourtClient,  # 162 мировых суда Самарской области
+    # 134 суда Саратовской и 219 Свердловской области подключены ВСЛЕПУЮ: живых карточек мы
+    # не видели. Ожидание типа B — самое частое; фактическую вёрстку определит сама страница
+    # (detect_page_type), а расхождение с ожиданием попадёт в лог.
+    SAR_DOMAIN: MsudrfCourtClient,
+    SVD_DOMAIN: MsudrfCourtClient,
+    SAH_DOMAIN: MsudrfCourtClient,  # 33 мировых суда Сахалинской области
+    SML_DOMAIN: MsudrfCourtClient,  # 56 мировых судов Смоленской области
+    TMB_DOMAIN: MsudrfCourtClient,  # 60 мировых судов Тамбовской области
+    # 83 мировых суда Тверской области, тоже вслепую. У 69MS0045 адрес в справочнике записан
+    # склеенно (26twr.msudrf.ru) — оба написания раскрывает host_variants.
+    TWR_DOMAIN: MsudrfCourtClient,
     BKR_DOMAIN: MsudrfCourtClient,  # 215 мировых судов Республики Башкортостан
     BUR_DOMAIN: MsudrfCourtClient,  # 54 мировых суда Республики Бурятия
     DAG_DOMAIN: MsudrfCourtClient,  # 131 мировой суд Республики Дагестан
@@ -187,18 +217,41 @@ def define_court_by_uid(
     raise UnsupportedCourt(uid)
 
 
+def _client_for_host(host: str):
+    """Класс клиента для хоста при ТОЧНОЙ сверке по границе имени (или None)."""
+    for domain, court_client_cls in COURT_BY_DOMAIN.items():
+        # Сравниваем по границе имени, а не через `in`: иначе «msudrf.ru.evil.com»
+        # тоже подошёл бы, и мы пошли бы браузером куда угодно.
+        if host == domain or host.endswith(f".{domain}"):
+            return court_client_cls
+    return None
+
+
 def define_court_by_url(
     url: str,
     proxy: ProxySettings | None = None,
     headless: bool = True,
     on_captcha_attempt: AttemptSink | None = None,
 ) -> CourtClient:
-    """Определить суд по домену ссылки на карточку дела."""
+    """Определить суд по домену ссылки на карточку дела.
+
+    Две попытки, и порядок между ними принципиален:
+
+    1. точная сверка хоста по границе имени;
+    2. только если не совпало — те же сверки для остальных написаний хоста
+       (host_variants в app/validators.py): метку участка отделяют от домена региона
+       точкой, дефисом или вовсе не отделяют, и все три написания живые.
+
+    Почему именно в таком порядке: «склеенный» вариант в первую очередь склеил бы разные
+    регионы — ralt.msudrf.ru (Республика Алтай) заканчивается на alt.msudrf.ru (Алтайский
+    край), и дело привязалось бы к чужому суду. При точной сверке первым проходом такой
+    хост совпадает сам с собой и до перебора не доходит.
+    """
     host = (urlsplit(url).hostname or "").lower()
-    for domain, court_client_cls in COURT_BY_DOMAIN.items():
-        # Сравниваем по границе имени, а не через `in`: иначе «msudrf.ru.evil.com»
-        # тоже подошёл бы, и мы пошли бы браузером куда угодно.
-        if host == domain or host.endswith(f".{domain}"):
+
+    for candidate in host_variants(host) or [host]:
+        court_client_cls = _client_for_host(candidate)
+        if court_client_cls is not None:
             return court_client_cls(
                 proxy=proxy, headless=headless, on_captcha_attempt=on_captcha_attempt
             )

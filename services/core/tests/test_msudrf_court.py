@@ -370,6 +370,18 @@ def test_material_case_code_starts_with_cyrillic_letter() -> None:
     assert MsudrfCourtClient().extract_case_code(html) == "М-2987/2026"
 
 
+def test_material_number_is_a_case_code_too() -> None:
+    """У производства по материалу заголовок «Материал № …», а не «ДЕЛО № …».
+
+    Номер входит в ключ карточки, и пока в шаблоне стояло только «ДЕЛО», такая страница
+    отсекалась как «не карточка» — вместе со всем производством по материалам
+    (delo_id=1610001 в ссылке).
+    """
+    html = "<html><body><h2>Материал № 13-163/2026</h2></body></html>"
+
+    assert MsudrfCourtClient().extract_case_code(html) == "13-163/2026"
+
+
 def test_missing_case_code_is_case_not_found() -> None:
     """Без номера дело не сохранить (он в ключе карточки) — повторять поход бессмысленно."""
     with pytest.raises(CaseNotFound):

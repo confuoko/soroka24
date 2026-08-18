@@ -21,7 +21,9 @@ app/parsers/msudrf_shared.py и переиспользуются целиком.
       | Лицо, участвующее в деле (ФИО, наимен.)  | ООО ПКО «…»     | Иванова И. И.     |
 
   У КоАП та же форма с одной колонкой-стороной и другими подписями строк («Вид участника
-  производства», «Сторона по делу (ФИО, наименование)»).
+  производства», «Сторона по делу (ФИО, наименование)»). У уголовных дел вместо сторон
+  вкладка «ЛИЦА», и она тоже транспонирована: ФИО подсудимого стоит в строке «ФИО
+  подсудимого», а рядом — статья обвинения и приговор, которых мы не храним.
 
 Где встречается: Пермский край (*.perm.msudrf.ru, 146 судов, код 59MS) и Республика Адыгея
 (*.adg.msudrf.ru, 24 суда, код 01MS) — примеры страниц в html_examples/case_96_* и
@@ -41,11 +43,15 @@ from bs4 import BeautifulSoup, Tag
 from app.parsers.base import CaseParser
 from app.parsers.msudrf_shared import (
     CARD_FIELDS,
+    CARD_TABS,
     EVENT_DATE_HEADINGS,
     EVENT_DESCRIPTION_SEPARATOR,
     EVENT_NAME_HEADINGS,
     EVENT_RESULT_HEADINGS,
+    EVENTS_TABS,
     JUDGE_LABELS,
+    PERSONS_TABS,
+    SIDES_TABS,
     clean,
     column_index,
     find_tab,
@@ -53,11 +59,7 @@ from app.parsers.msudrf_shared import (
     tab_bodies,
 )
 
-# Названия вкладок. Ищем по НАЧАЛУ названия (find_tab): «СТОРОНЫ ПО ДЕЛУ» в Пермском крае,
-# «СТОРОНЫ ПО ДЕЛУ (ТРЕТЬИ ЛИЦА)» в Адыгее.
-CARD_TAB = "ДЕЛО"
-EVENTS_TAB = "ДВИЖЕНИЕ ДЕЛА"
-SIDES_TAB = "СТОРОНЫ"
+# Названия вкладок и их синонимы — в app/parsers/msudrf_shared.py (CARD_TABS и далее).
 
 # Метка карточки и шапка таблиц свёрстаны этим тегом.
 LABEL_TAG = "b"
@@ -240,6 +242,36 @@ def _parse_sides(tab: Tag) -> list[dict]:
     ]
 
 
+# Подписи строк вкладки «ЛИЦА» (уголовные дела), где лежит ФИО. Таблица там тоже
+# транспонирована, но сторона одна, а строк много — кроме ФИО там статья обвинения и
+# приговор, полей под которые в модели дела нет.
+PERSON_NAME_LABELS = frozenset({"фио подсудимого", "фио", "фио лица"})
+# Процессуального статуса во вкладке «ЛИЦА» нет — роль проставляем сами, иначе лицо не
+# сохранить: роль у стороны есть всегда. Так же поступает парсер типа B.
+PERSON_ROLE = "Лицо"
+
+
+def _parse_persons(tab: Tag) -> list[dict]:
+    """Разобрать вкладку «ЛИЦА» (уголовные дела) в список {"role", "full_name"}.
+
+    Строки-секции («СВЕДЕНИЯ О ЛИЦЕ», «СВЕДЕНИЯ О ПРЕСТУПЛЕНИИ», «РЕШЕНИЕ») свёрстаны
+    ячейкой с colspan и отбрасываются вместе с прочими метками — берём только ФИО.
+    """
+    table = tab.find("table")
+    if table is None:
+        return []
+
+    persons: list[dict] = []
+    for row in table.select("tr"):
+        if _label(row) not in PERSON_NAME_LABELS:
+            continue
+        for cell in row.find_all("td")[1:]:
+            full_name = clean(cell.get_text())
+            if full_name:
+                persons.append({"role": PERSON_ROLE, "full_name": full_name})
+    return persons
+
+
 class MsudrfTypeCParser(CaseParser):
     """Парсер страниц типа C (движок msudrf.ru, вторая вёрстка карточки)."""
 
@@ -253,19 +285,25 @@ class MsudrfTypeCParser(CaseParser):
         # Вкладки может не быть совсем — например, если браузер отдал пустой документ.
         card: dict = {field: None for field, _ in CARD_FIELDS.values()}
         judge_names: list[str] = []
-        card_tab = tabs.get(CARD_TAB)  # ровно «ДЕЛО»: с «ДВИЖЕНИЕМ ДЕЛА» не спутать
+        # «ДЕЛО» или «МАТЕРИАЛ»; с «ДВИЖЕНИЕМ ДЕЛА» не спутать — сверка по началу названия.
+        card_tab = find_tab(tabs, *CARD_TABS)
         if card_tab is not None:
             card, judge_names = _parse_card(card_tab)
 
         # === ДВИЖЕНИЕ ДЕЛА: события и состояние дела ========================
-        events_tab = find_tab(tabs, EVENTS_TAB)
+        events_tab = find_tab(tabs, *EVENTS_TABS)
         events, status = (
             _parse_events(events_tab) if events_tab is not None else ([], None)
         )
 
-        # === СТОРОНЫ ========================================================
-        sides_tab = find_tab(tabs, SIDES_TAB)
-        sides = _parse_sides(sides_tab) if sides_tab is not None else []
+        # === СТОРОНЫ И ЛИЦА ================================================
+        # Обе вкладки дают стороны по делу и складываются в один список.
+        # Разбор выбираем по ПОДПИСЯМ СТРОК, а не по названию вкладки: название о форме
+        # таблицы не говорит (см. _parse_participants в app/parsers/msudrf_type_b.py).
+        sides: list[dict] = []
+        for tab in (find_tab(tabs, *SIDES_TABS), find_tab(tabs, *PERSONS_TABS)):
+            if tab is not None:
+                sides.extend(_parse_sides(tab) or _parse_persons(tab))
 
         return {
             **card,

@@ -64,12 +64,16 @@ from bs4 import BeautifulSoup, Tag
 from app.parsers.base import CaseParser
 from app.parsers.msudrf_shared import (
     CARD_FIELDS,
+    CARD_TABS,
     EVENT_DATE_HEADINGS,
     EVENT_DESCRIPTION_SEPARATOR,
     EVENT_NAME_HEADINGS,
     EVENT_PUBLISHED_HEADINGS,
     EVENT_RESULT_HEADINGS,
+    EVENTS_TABS,
     JUDGE_LABELS,
+    PERSONS_TABS,
+    SIDES_TABS,
     clean,
     column_index,
     find_tab,
@@ -302,14 +306,22 @@ def _parse_persons(tab: Tag) -> list[dict]:
     return persons
 
 
-# Названия вкладок — всегда капсом. Ищем их по НАЧАЛУ названия (find_tab): одна и та же
-# вкладка подписана по-разному на разных порталах движка — «СТОРОНЫ» в Московской области
-# и Якутии, «СТОРОНЫ ПО ДЕЛУ» в Пермском крае. Для «ДЕЛА» это тоже важно: сверка целиком
-# спутала бы его с «ДВИЖЕНИЕМ ДЕЛА» только при поиске по вхождению, а по началу — нет.
-CARD_TAB = "ДЕЛО"
-EVENTS_TAB = "ДВИЖЕНИЕ ДЕЛА"
-SIDES_TAB = "СТОРОНЫ"
-PERSONS_TAB = "ЛИЦА"
+# Названия вкладок и их синонимы — в app/parsers/msudrf_shared.py (CARD_TABS и далее).
+
+
+def _parse_participants(tab: Tag) -> list[dict]:
+    """Разобрать вкладку участников, выбрав разбор ПО ШАПКЕ таблицы, а не по названию.
+
+    Название вкладки о форме таблицы не говорит: в Смоленской области вкладка называется
+    «ЛИЦА», а внутри лежит обычная таблица сторон («Процессуальный статус лица…» +
+    «Лицо, участвующее в деле…»). Пока разбор выбирался по названию, стороны таких дел
+    терялись целиком — колонки «ФИО» в такой таблице нет.
+
+    Поэтому сначала пробуем разобрать как стороны (там есть и роль, и ФИО), а если не
+    вышло — как «ЛИЦА» уголовного дела, где процессуального статуса нет и роль мы
+    проставляем сами.
+    """
+    return _parse_sides(tab) or _parse_persons(tab)
 
 
 class MsudrfTypeBParser(CaseParser):
@@ -325,12 +337,13 @@ class MsudrfTypeBParser(CaseParser):
         # Вкладки может не быть совсем — например, если браузер отдал пустой документ.
         card: dict = {field: None for field, _ in CARD_FIELDS.values()}
         judge_names: list[str] = []
-        card_tab = tabs.get(CARD_TAB)  # ровно «ДЕЛО»: с «ДВИЖЕНИЕМ ДЕЛА» не спутать
+        # «ДЕЛО» или «МАТЕРИАЛ»; с «ДВИЖЕНИЕМ ДЕЛА» не спутать — сверка по началу названия.
+        card_tab = find_tab(tabs, *CARD_TABS)
         if card_tab is not None:
             card, judge_names = _parse_card(card_tab)
 
         # === ДВИЖЕНИЕ ДЕЛА: события и состояние дела ========================
-        events_tab = find_tab(tabs, EVENTS_TAB)
+        events_tab = find_tab(tabs, *EVENTS_TABS)
         events, status = (
             _parse_events(events_tab) if events_tab is not None else ([], None)
         )
@@ -338,12 +351,9 @@ class MsudrfTypeBParser(CaseParser):
         # === СТОРОНЫ И ЛИЦА ================================================
         # Обе вкладки дают стороны по делу и складываются в один список.
         sides: list[dict] = []
-        sides_tab = find_tab(tabs, SIDES_TAB)
-        if sides_tab is not None:
-            sides.extend(_parse_sides(sides_tab))
-        persons_tab = find_tab(tabs, PERSONS_TAB)
-        if persons_tab is not None:
-            sides.extend(_parse_persons(persons_tab))
+        for tab in (find_tab(tabs, *SIDES_TABS), find_tab(tabs, *PERSONS_TABS)):
+            if tab is not None:
+                sides.extend(_parse_participants(tab))
 
         return {
             **card,

@@ -20,6 +20,7 @@ from app.courts import (
 from app.models.database import SearchStatus, SearchTask
 from app.repositories import SearchTaskRepository
 from app.validators import (
+    host_variants,
     is_synthetic_uid,
     looks_like_url,
     synthetic_uid,
@@ -211,6 +212,65 @@ def test_perm_krai_and_primorsky_krai_are_separate_domains() -> None:
     assert not isinstance(primorsky, MsudrfTypeCCourtClient)
 
 
+@pytest.mark.parametrize(
+    "url, page_type",
+    [
+        # Тип B — разметку смотрели на живых карточках каждого из этих регионов.
+        ("https://abakan1.hak.msudrf.ru/x", "B"),   # Республика Хакасия, 35 судов
+        ("https://okt6.ros.msudrf.ru/x", "B"),      # Ростовская область, 230 судов
+        ("https://6.sam.msudrf.ru/x", "B"),         # Самарская область, 162 суда
+        ("https://10.sah.msudrf.ru/x", "B"),        # Сахалинская область, 33 суда
+        ("https://41.sml.msudrf.ru/x", "B"),        # Смоленская область, 56 судов
+        ("https://bond.tmb.msudrf.ru/x", "B"),      # Тамбовская область, 60 судов
+        # Тип C — вторая вёрстка движка.
+        ("https://kizil1.tuva.msudrf.ru/x", "C"),   # Республика Тыва, 26 судов
+        ("https://57.riz.msudrf.ru/x", "C"),        # Рязанская область, 70 судов
+        # Подключены вслепую: карточек не видели, ожидание типа B, решает страница.
+        ("https://1.sar.msudrf.ru/x", "B"),         # Саратовская область, 134 суда
+        ("https://1vis.svd.msudrf.ru/x", "B"),      # Свердловская область, 219 судов
+        ("https://26.twr.msudrf.ru/x", "B"),        # Тверская область, 83 суда
+    ],
+)
+def test_new_regions_resolve_with_the_expected_layout(url, page_type) -> None:
+    """Одиннадцать регионов движка подключены, и каждый ведётся клиентом своего типа.
+
+    page_type здесь — ОЖИДАНИЕ вёрстки: фактическую определяет сама страница
+    (detect_page_type), см. MsudrfCourtClient.parse. Для регионов, подключённых вслепую,
+    ожидание поставлено типом B как самое частое.
+    """
+    assert define_court_by_url(url).page_type == page_type
+
+
+def test_participok_label_may_be_glued_to_the_region_domain() -> None:
+    """26twr.msudrf.ru — тот же суд, что 26.twr.msudrf.ru: написание метки участка не важно.
+
+    Так записан 69MS0045 в справочнике, и портал отвечает по обоим именам (одинаковый IP).
+    Раньше склеенный адрес не проходил сверку по границе имени, и этот суд был недоступен
+    по любой ссылке.
+    """
+    for url in (
+        "https://26.twr.msudrf.ru/modules.php?name=sud_delo",
+        "https://26twr.msudrf.ru/modules.php?name=sud_delo",
+        "https://26-twr.msudrf.ru/modules.php?name=sud_delo",
+    ):
+        assert is_supported_url(url) is True
+
+
+def test_variants_do_not_break_the_domain_boundary_guard() -> None:
+    """Перебор написаний хоста НЕ должен открывать дорогу подменам.
+
+    Это главный риск затеи: «склеенный» вариант в первую очередь склеил бы разные регионы.
+    Перебор поэтому идёт ВТОРЫМ проходом, после точной сверки, а дефисный вариант требует
+    номера участка слева от дефиса — иначе «evil-mo.msudrf.ru» разворачивался бы в
+    «evil.mo.msudrf.ru» и проходил как Московская область.
+    """
+    assert is_supported_url("https://evil-mo.msudrf.ru/case") is False
+    assert is_supported_url("https://msudrf.ru.evil.com/case") is False
+    # Республика Алтай (02MS) и Алтайский край (22MS) остаются разными регионами.
+    assert host_variants("ralt.msudrf.ru") == ["ralt.msudrf.ru"]
+    assert isinstance(define_court_by_url("https://galtms1.ralt.msudrf.ru/x"), MsudrfCourtClient)
+
+
 def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
     """Тот же движок в чужом регионе пока не обслуживаем.
 
@@ -218,11 +278,11 @@ def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
     в COURT_BY_DOMAIN), поэтому обещать остальные 2618 судов, ни разу их не открыв, нельзя.
     Подключается регион одной строкой в COURT_BY_DOMAIN — когда его разметку проверят.
     """
-    # Ростовская область — самый большой из неподключённых регионов движка (230 судов),
+    # Челябинская область — самый большой из неподключённых регионов движка (183 суда),
     # Брянская — регион со второй вёрсткой карточки, куда пока не ходили (76 судов).
-    # Адыгея раньше стояла здесь же, но теперь подключена — см.
-    # test_adygea_and_perm_urls_resolve_to_type_c_client ниже.
-    for url in ("http://1.ros.msudrf.ru/x", "https://12.brj.msudrf.ru/y"):
+    # Здесь раньше стояли Адыгея и Ростовская область — обе теперь подключены, см. тесты
+    # ниже. Неподключённых доменов движка осталось 18, судов в них 1229.
+    for url in ("http://1.chel.msudrf.ru/x", "https://12.brj.msudrf.ru/y"):
         assert is_supported_url(url) is False
         with pytest.raises(UnsupportedCourt):
             define_court_by_url(url)
