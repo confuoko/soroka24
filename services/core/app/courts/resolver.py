@@ -24,7 +24,9 @@ CourtRepository.get_by_url.
 у клиента — константа класса (CourtClient.page_type), по которой парсер достаётся из
 реестра. Поэтому регион движка с другой разметкой подключается не развилкой внутри
 клиента, а своим классом: у msudrf.ru таких два — MsudrfCourtClient (тип B) и
-MsudrfTypeCCourtClient (тип C, парсер ещё не написан, доменов на него пока не отображено).
+MsudrfTypeCCourtClient (тип C — Пермский край и Адыгея). Отображение домена на тип при этом
+ОЖИДАНИЕ, а не приговор: фактическую вёрстку клиент определяет по самой странице
+(detect_page_type), потому что движок общий на 72 региона и отдать может любую из двух.
 """
 from urllib.parse import urlsplit
 
@@ -34,6 +36,7 @@ from app.courts.base import CourtClient, UnsupportedCourt
 from app.courts.moscow_mir_court import MoscowMirCourtClient
 from app.courts.msudrf_court import (
     ALT_DOMAIN,
+    ADG_DOMAIN,
     AMR_DOMAIN,
     ARH_DOMAIN,
     AST_DOMAIN,
@@ -64,6 +67,8 @@ from app.courts.msudrf_court import (
     NNOV_DOMAIN,
     NVG_DOMAIN,
     OMS_DOMAIN,
+    ORL_DOMAIN,
+    PERM_DOMAIN,
     PNZ_DOMAIN,
     PRM_DOMAIN,
     RALT_DOMAIN,
@@ -73,7 +78,7 @@ from app.courts.msudrf_court import (
     YAK_DOMAIN,
     ZBK_DOMAIN,
 )
-from app.courts.msudrf_court import MsudrfCourtClient
+from app.courts.msudrf_court import MsudrfCourtClient, MsudrfTypeCCourtClient
 from app.courts.spb_mir_court import DOMAIN as SPB_DOMAIN
 from app.courts.spb_mir_court import SpbMirCourtClient
 
@@ -119,11 +124,22 @@ COURT_BY_DOMAIN = {
     NNOV_DOMAIN: MsudrfCourtClient,  # 179 мировых судов Нижегородской области
     NVG_DOMAIN: MsudrfCourtClient,  # 41 мировой суд Новгородской области
     OMS_DOMAIN: MsudrfCourtClient,  # 114 мировых судов Омской области
+    # 48 мировых судов Орловской области. Разметка типа B, но с ДРУГИМ порядком колонок в
+    # «Движении дела» — из-за этого региона парсер типа B перевели с номеров колонок на
+    # поиск по шапке (см. ORL_DOMAIN в app/courts/msudrf_court.py).
+    ORL_DOMAIN: MsudrfCourtClient,
     PNZ_DOMAIN: MsudrfCourtClient,  # 76 мировых судов Пензенской области
     PRM_DOMAIN: MsudrfCourtClient,  # 109 мировых судов Приморского края
+    # 146 мировых судов Пермского края — ВТОРАЯ вёрстка движка, тип C. Домен отличается от
+    # Приморского края выше одной буквой (perm/prm), и различает их только сверка по границе
+    # имени в define_court_by_url — как у Алтая (ALT/RALT).
+    PERM_DOMAIN: MsudrfTypeCCourtClient,
     # 14 мировых судов Республики Алтай. Домен отличается от Алтайского края (ALT_DOMAIN)
     # одной буквой, и различает их только точка в define_court_by_url — см. RALT_DOMAIN.
     RALT_DOMAIN: MsudrfCourtClient,
+    # 24 мировых суда Республики Адыгея — тоже вторая вёрстка движка, тип C, но таблица
+    # «Движения дела» на одну колонку короче, чем в Пермском крае.
+    ADG_DOMAIN: MsudrfTypeCCourtClient,
     BKR_DOMAIN: MsudrfCourtClient,  # 215 мировых судов Республики Башкортостан
     BUR_DOMAIN: MsudrfCourtClient,  # 54 мировых суда Республики Бурятия
     DAG_DOMAIN: MsudrfCourtClient,  # 131 мировой суд Республики Дагестан

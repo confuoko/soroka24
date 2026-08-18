@@ -10,6 +10,7 @@ import pytest
 from app.courts import (
     MoscowMirCourtClient,
     MsudrfCourtClient,
+    MsudrfTypeCCourtClient,
     UnsupportedCourt,
     define_court_by_uid,
     define_court_by_url,
@@ -173,6 +174,43 @@ def test_sakha_url_resolves_to_msudrf_client() -> None:
         assert isinstance(define_court_by_url(url), MsudrfCourtClient)
 
 
+def test_oryol_url_resolves_to_msudrf_client() -> None:
+    """Орловская область — 48 судов, поддомены словесные, разметка типа B.
+
+    Именно на её карточках выяснилось, что порядок колонок «Движения дела» у движка
+    непостоянен, — см. регресс в tests/test_msudrf_type_b_parser.py.
+    """
+    for url in ("https://bolh.orl.msudrf.ru/modules.php?name=sud_delo", "http://3sev.orl.msudrf.ru/y"):
+        assert isinstance(define_court_by_url(url), MsudrfCourtClient)
+
+
+def test_adygea_and_perm_urls_resolve_to_type_c_client() -> None:
+    """Пермский край и Адыгея — вторая вёрстка движка: их ведём клиентом типа C.
+
+    До появления разбора типа C эти регионы были неподдержаны: парсер B на их карточках
+    возвращал пустоту.
+    """
+    for url in ("https://96.perm.msudrf.ru/x", "https://maikop1.adg.msudrf.ru/y", "https://adg1.adg.msudrf.ru/z"):
+        client = define_court_by_url(url)
+        assert isinstance(client, MsudrfTypeCCourtClient)
+        assert client.page_type == "C"
+
+
+def test_perm_krai_and_primorsky_krai_are_separate_domains() -> None:
+    """perm.msudrf.ru и prm.msudrf.ru — РАЗНЫЕ регионы, и путать их нельзя.
+
+    Пермский край (146 судов, код 59MS, вёрстка типа C) и Приморский край (109 судов,
+    код 25MS, вёрстка типа B) отличаются одной буквой в домене, и у обоих числовые
+    поддомены. Сверка подстрокой привязала бы дело к чужому суду в другом регионе — и это
+    хуже, чем отказ. Вторая такая пара после Алтая (см. тест выше).
+    """
+    assert isinstance(define_court_by_url("https://96.perm.msudrf.ru/x"), MsudrfTypeCCourtClient)
+
+    primorsky = define_court_by_url("https://96.prm.msudrf.ru/x")
+    assert isinstance(primorsky, MsudrfCourtClient)
+    assert not isinstance(primorsky, MsudrfTypeCCourtClient)
+
+
 def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
     """Тот же движок в чужом регионе пока не обслуживаем.
 
@@ -181,8 +219,10 @@ def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
     Подключается регион одной строкой в COURT_BY_DOMAIN — когда его разметку проверят.
     """
     # Ростовская область — самый большой из неподключённых регионов движка (230 судов),
-    # Адыгея — один из самых маленьких (24).
-    for url in ("http://1.ros.msudrf.ru/x", "https://maikop1.adg.msudrf.ru/y"):
+    # Брянская — регион со второй вёрсткой карточки, куда пока не ходили (76 судов).
+    # Адыгея раньше стояла здесь же, но теперь подключена — см.
+    # test_adygea_and_perm_urls_resolve_to_type_c_client ниже.
+    for url in ("http://1.ros.msudrf.ru/x", "https://12.brj.msudrf.ru/y"):
         assert is_supported_url(url) is False
         with pytest.raises(UnsupportedCourt):
             define_court_by_url(url)

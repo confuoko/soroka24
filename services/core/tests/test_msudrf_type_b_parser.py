@@ -17,6 +17,10 @@
 карточке есть не всегда.
   * case_sakha45_nouid-14MS0054-972273874cab.html — Якутия, архивное дело 2011 года:
     УИД на карточке нет вовсе, метки те же (тип B)
+  * case_3sev_nouid-57MS0035-faca1208385d.html — Орловская область: ДРУГОЙ ПОРЯДОК колонок
+    в «Движении дела» («Дата события» вторая, «Результат события» четвёртый)
+  * case_elec-r1_48MS0012-01-2026-001030-63.html — Липецкая область: тела вкладок лежат в
+    div#cont1…div#cont3, а не в div.tab-content
 """
 from datetime import date
 from pathlib import Path
@@ -259,3 +263,66 @@ def test_archive_card_without_uid_parses_fully() -> None:
         "Решение по существу",
     ]
     assert card["events"][0]["event_date"] == date(2011, 4, 29)
+
+
+# ------------------------------------------------- вёрстки одного и того же типа B
+def test_swapped_movement_columns_are_read_by_heading() -> None:
+    """Орловская область: колонки «Движения дела» переставлены — события всё равно наши.
+
+    Регресс. Пока колонки брались по номеру, дата события читалась из колонки со ВРЕМЕНЕМ
+    («10:00» → None), и все события такой страницы отбрасывались молча: карточка при этом
+    оставалась непустой, так что ошибка ничем не проявлялась. Так свёрстаны Орловская и
+    Калининградская области и Забайкальский край — то есть и уже подключённые регионы.
+    """
+    card = _parse("case_3sev_nouid-57MS0035-faca1208385d.html")
+
+    assert card["receipt_date"] == date(2026, 7, 16)
+    assert card["judge_names"] == ["Хворостянова Кристина Зауриевна"]
+    # Три строки движения, но у первой нет даты события — в события она не попадает.
+    assert [(e["event_date"], e["state_description"]) for e in card["events"]] == [
+        (
+            date(2026, 7, 16),
+            "Подготовка к судебному разбирательству - Принято решение: Определение о "
+            "назначении дела к разбирательству в судебном заседании",
+        ),
+        (date(2026, 8, 18), "Судебное заседание"),
+    ]
+    # «Дата размещения» — последняя колонка, и она тоже найдена по шапке, а не по номеру.
+    assert card["events"][0]["published_at"] == date(2026, 7, 20)
+    assert card["status"] == "Судебное заседание"
+
+
+def test_tab_bodies_may_live_in_numbered_divs() -> None:
+    """Липецкая область: тела вкладок в div#cont1…3, а не в div.tab-content.
+
+    Регресс. Регион подключён, но разбор возвращал пустоту целиком: тел вкладок находилось
+    ноль, потому что искали только div.tab-content.
+    """
+    card = _parse("case_elec-r1_48MS0012-01-2026-001030-63.html")
+
+    assert card["category"].startswith("Споры, связанные с имущественными правами")
+    assert card["judge_names"] == ["Свиридова Маргарита Вячеславовна"]
+    assert card["first_instance_decision"] == "Судебный приказ"
+    assert len(card["events"]) == 1
+    assert {side["role"] for side in card["sides"]} == {"Взыскатель", "Должник"}
+
+
+def test_header_row_inside_tbody_is_not_a_case_state() -> None:
+    """Строка-шапка в теле таблицы не должна становиться состоянием дела.
+
+    Так свёрстан тип C (там <thead> нет вовсе). Если принять её за событие, карточка с
+    чужой разметкой выглядела бы разобранной, и проверка пустого разбора в
+    app/monitoring/tasks.py перестала бы её отсекать.
+    """
+    html = (
+        '<div class="lawcase-content"><ul id="tabs"><li>ДВИЖЕНИЕ ДЕЛА</li></ul>'
+        '<div id="contentt"><div class="tab-content"><table><tbody>'
+        "<tr><td><b>Наименование события</b></td><td><b>Дата события</b></td>"
+        "<td><b>Результат события</b></td></tr>"
+        "</tbody></table></div></div></div>"
+    )
+
+    result = MsudrfTypeBParser().parse(html)
+
+    assert result["events"] == []
+    assert result["status"] is None

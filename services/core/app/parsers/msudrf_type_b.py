@@ -29,6 +29,9 @@ extract_case_code и CourtClient.extract_uid) ещё до разбора, пот
   внутри div#contentt. Искать тело вкладки по чему-то ещё нечем.
 - <h2> — это и заголовок с номером дела, и КАЖДАЯ метка карточки, и КАЖДАЯ шапка
   таблицы. soup.find_all("h2") вернёт номер дела вперемешку с полутора десятками меток.
+- Тело вкладки лежит либо в div.tab-content, либо в div#cont1…div#cont3 (Липецкая
+  область). Оба варианта учитывает tab_bodies (app/parsers/msudrf_shared.py); пока искали
+  только первый, разбор всего региона возвращал пустоту.
 - Набор меток различается по виду производства, и одно и то же поле подписано
   по-разному: судья — «Председательствующий судья» / «Дело находится в производстве
   судьи» / «Передано в производство судье», результат — «Результат рассмотрения» /
@@ -37,9 +40,12 @@ extract_case_code и CourtClient.extract_uid) ещё до разбора, пот
   «постановления» то со строчной, то с прописной.
 - «Категория» есть только у гражданских дел, «Дата вступления в законную силу» —
   вообще у единиц. Отсутствие метки — норма, а не поломка разметки.
-- Шапка второй колонки «Движения дела» — «Результат события» у гражданских и
-  уголовных, но просто «Результат» у КоАП. Колонок всегда шесть и порядок фиксирован,
-  поэтому берём их по индексу, а не по шапке.
+- Колонки «Движения дела» ПО ИНДЕКСУ брать нельзя, хотя раньше здесь так и было:
+  порядок у движка непостоянен. У Московской области, Якутии, Кемеровской и Ивановской
+  областей это «Наименование | Результат события | Дата события | Время», а у Орловской,
+  Калининградской областей и Забайкальского края — «Наименование | Дата события | Время
+  события | Результат события». Ищем по шапке, причём вторая колонка подписана «Результат
+  события» у гражданских и уголовных, но просто «Результат» у КоАП.
 - «Дата события» сплошь и рядом пустая: у только что заведённых дел — во ВСЕХ строках.
   Такие строки в события не превращаем (без даты не посчитать identity), но состояние
   дела из них берём — иначе у свежих дел не было бы ни одного признака жизни.
@@ -53,92 +59,23 @@ extract_case_code и CourtClient.extract_uid) ещё до разбора, пот
   пустой <html><head></head><body></body></html>. Разбор такого документа обязан вернуть
   пустой результат, а не упасть.
 """
-from datetime import date, datetime
-
 from bs4 import BeautifulSoup, Tag
 
 from app.parsers.base import CaseParser
-
-
-def _clean(text: str) -> str:
-    """Схлопнуть любые пробелы/переводы строк в один пробел и обрезать края."""
-    return " ".join(text.split())
-
-
-def _clean_or_none(text: str) -> str | None:
-    """Как _clean, но пустое значение → None (в БД такому полю место NULL, а не '')."""
-    return _clean(text) or None
-
-
-# Формат дат на портале — везде один, и в карточке, и в таблице событий.
-DATE_FORMAT = "%d.%m.%Y"
-
-
-def _parse_date(text: str) -> date | None:
-    """Разобрать дату формата ДД.ММ.ГГГГ; пустое/некорректное значение → None."""
-    text = _clean(text)
-    if not text:
-        return None
-    try:
-        return datetime.strptime(text, DATE_FORMAT).date()
-    except ValueError:
-        return None
-
-
-# Вкладки: названия в ul#tabs, тела — в div#contentt. Сопоставляются только по порядку.
-TABS_SELECTOR = "ul#tabs li"
-TAB_BODIES_SELECTOR = "div#contentt > div.tab-content"
-
-
-def _tab_bodies(soup: BeautifulSoup) -> dict[str, Tag]:
-    """Сопоставить название вкладки с её содержимым по порядковому номеру.
-
-    Ни id, ни href, ни data-атрибутов у вкладок нет — привязать тело к названию можно
-    только позицией. Лишние названия без тела (и наоборот) молча отбрасываем: zip
-    обрезается по короткому, и это ровно то поведение, которое нужно.
-    """
-    names = [_clean(tab.get_text()) for tab in soup.select(TABS_SELECTOR)]
-    bodies = soup.select(TAB_BODIES_SELECTOR)
-    return {name: body for name, body in zip(names, bodies) if name}
-
-
-# Скалярные поля дела из вкладки «ДЕЛО»: метка -> (поле Case, преобразование значения).
-# Ключи в нижнем регистре, метку сверяем целиком: «Результат рассмотрения» — это ДРУГОЕ
-# поле, чем «Результат рассмотрения по делу», и сравнение по префиксу их бы склеило.
-# Один и тот же смысл подписан по-разному в зависимости от вида производства, поэтому
-# несколько меток ведут в одно поле.
-CARD_FIELDS = {
-    "дата поступления": ("receipt_date", _parse_date),
-    "категория": ("category", _clean_or_none),
-    # Дата рассмотрения: приказное / уголовное / КоАП.
-    "дело рассмотрено (выдан приказ)": ("first_instance_date", _parse_date),
-    "дата рассмотрения дела": ("first_instance_date", _parse_date),
-    "дата вынесения постановления (определения) по делу": (
-        "first_instance_date",
-        _parse_date,
-    ),
-    # Результат рассмотрения: приказное / уголовное / КоАП.
-    "результат рассмотрения": ("first_instance_decision", _clean_or_none),
-    "результат рассмотрения по делу": ("first_instance_decision", _clean_or_none),
-    "результат рассмотрения (подготовки к рассмотрению) дела": (
-        "first_instance_decision",
-        _clean_or_none,
-    ),
-    "дата вступления в законную силу": ("decision_effective_date", _parse_date),
-}
-
-# Метки судьи — по одной на вид производства, значение у всех одинаковое: ФИО.
-JUDGE_LABELS = frozenset(
-    {
-        "председательствующий судья",
-        "дело находится в производстве судьи",
-        "передано в производство судье",
-    }
+from app.parsers.msudrf_shared import (
+    CARD_FIELDS,
+    EVENT_DATE_HEADINGS,
+    EVENT_DESCRIPTION_SEPARATOR,
+    EVENT_NAME_HEADINGS,
+    EVENT_PUBLISHED_HEADINGS,
+    EVENT_RESULT_HEADINGS,
+    JUDGE_LABELS,
+    clean,
+    column_index,
+    find_tab,
+    parse_date,
+    tab_bodies,
 )
-
-# «Уникальный идентификатор дела» и «Номер протокола об АП» намеренно не разбираем:
-# первый достаёт клиент до парсинга, под второй в модели дела поля нет.
-
 
 def _parse_card(tab: Tag) -> tuple[dict, list[str]]:
     """Разобрать вкладку «ДЕЛО» в (скалярные поля, список ФИО судей).
@@ -156,11 +93,11 @@ def _parse_card(tab: Tag) -> tuple[dict, list[str]]:
         if label_el is None or len(cells) < 2:
             continue
 
-        label = _clean(label_el.get_text()).casefold()
+        label = clean(label_el.get_text()).casefold()
         value_el = cells[1]
 
         if label in JUDGE_LABELS:
-            name = _clean(value_el.get_text())
+            name = clean(value_el.get_text())
             if name:
                 judge_names.append(name)
         elif label in CARD_FIELDS:
@@ -170,16 +107,54 @@ def _parse_card(tab: Tag) -> tuple[dict, list[str]]:
     return card, judge_names
 
 
-# Колонки «Движения дела»: их всегда шесть и порядок фиксирован. Берём по индексу —
-# по шапке нельзя: у КоАП вторая колонка подписана «Результат», а не «Результат события».
-EVENT_NAME_COL = 0
-EVENT_RESULT_COL = 1
-EVENT_DATE_COL = 2
-EVENT_PUBLISHED_COL = 5
-# Наименование и результат события портал отдаёт разными колонками, а нам нужно одно
-# описание состояния: склеиваем через дефис. Приставки («Принято решение: »,
-# «Перенесено по причинам: ») оставляем как есть — толковать портал не наше дело.
-EVENT_DESCRIPTION_SEPARATOR = " - "
+# Колонки «Движения дела» ищем ПО ШАПКЕ (списки названий — в msudrf_shared).
+#
+# По индексу их брать НЕЛЬЗЯ, хотя раньше здесь было именно так: порядок колонок у движка
+# не постоянен. У Московской области, Якутии, Кемеровской и Ивановской областей идёт
+# «Наименование | Результат события | Дата события | Время», а у Орловской, Калининградской
+# областей и Забайкальского края — «Наименование | Дата события | Время события | Результат
+# события». На вторых разбор по индексу читал дату из колонки со ВРЕМЕНЕМ («10:00» →
+# None) и отбрасывал все события молча: карточка при этом оставалась непустой, так что
+# ошибка ничем не проявлялась, кроме пустого «Движения дела».
+#
+# Ниже — те же индексы как ОТКАТ на случай, когда шапки в таблице нет вовсе: такой
+# страницы мы не видели, но поведение на ней тогда останется прежним.
+FALLBACK_EVENT_NAME_COL = 0
+FALLBACK_EVENT_RESULT_COL = 1
+FALLBACK_EVENT_DATE_COL = 2
+FALLBACK_EVENT_PUBLISHED_COL = 5
+
+
+def _cell(cells: list, index: int | None) -> str:
+    """Текст колонки index или пустая строка, если такой колонки на странице нет."""
+    if index is None or index >= len(cells):
+        return ""
+    return clean(cells[index].get_text())
+
+
+def _event_columns(table: Tag) -> tuple[int, int | None, int, int | None]:
+    """Номера колонок (наименование, результат, дата, дата размещения) по шапке таблицы.
+
+    Шапка свёрстана через <td> внутри <thead> — <th> на этих страницах не бывает. Если
+    шапки нет, возвращаем прежние фиксированные индексы.
+    """
+    headings = [clean(cell.get_text()).casefold() for cell in table.select("thead td")]
+    if not headings:
+        return (
+            FALLBACK_EVENT_NAME_COL,
+            FALLBACK_EVENT_RESULT_COL,
+            FALLBACK_EVENT_DATE_COL,
+            FALLBACK_EVENT_PUBLISHED_COL,
+        )
+
+    name_col = column_index(headings, EVENT_NAME_HEADINGS)
+    date_col = column_index(headings, EVENT_DATE_HEADINGS)
+    return (
+        FALLBACK_EVENT_NAME_COL if name_col is None else name_col,
+        column_index(headings, EVENT_RESULT_HEADINGS),
+        FALLBACK_EVENT_DATE_COL if date_col is None else date_col,
+        column_index(headings, EVENT_PUBLISHED_HEADINGS),
+    )
 
 
 def _parse_events(tab: Tag) -> tuple[list[dict], str | None]:
@@ -198,23 +173,32 @@ def _parse_events(tab: Tag) -> tuple[list[dict], str | None]:
     if table is None:
         return events, status
 
+    name_col, result_col, date_col, published_col = _event_columns(table)
+
     for row in table.select("tbody tr"):
         cells = row.find_all("td")
-        if len(cells) <= EVENT_PUBLISHED_COL:
+        if len(cells) <= max(name_col, date_col):
             continue
 
-        name = _clean(cells[EVENT_NAME_COL].get_text())
+        name = clean(cells[name_col].get_text())
         if not name:
+            continue
+        if name.casefold() in EVENT_NAME_HEADINGS:
+            # Это строка-ШАПКА, попавшая в тело таблицы (так свёрстан тип C, где <thead>
+            # нет вовсе). Пропускаем: иначе её текст уехал бы в состояние дела, и карточка
+            # с чужой разметкой выглядела бы разобранной — guard пустого разбора в
+            # app/monitoring/tasks.py перестал бы её отсекать.
             continue
 
         # Состояние дела — наименование последней строки, поэтому перетираем на каждой.
         status = name
 
-        event_date = _parse_date(cells[EVENT_DATE_COL].get_text())
+        event_date = parse_date(cells[date_col].get_text())
         if event_date is None:
             continue  # без даты событие не может участвовать в детекте изменений
 
-        result = _clean(cells[EVENT_RESULT_COL].get_text())
+        # Колонки может не быть на странице вовсе — тогда и поля у события нет.
+        result = _cell(cells, result_col)
         events.append(
             {
                 "event_date": event_date,
@@ -223,7 +207,7 @@ def _parse_events(tab: Tag) -> tuple[list[dict], str | None]:
                 ),
                 # Документов-оснований на страницах движка нет — колонки под них не бывает.
                 "document_str": None,
-                "published_at": _parse_date(cells[EVENT_PUBLISHED_COL].get_text()),
+                "published_at": parse_date(_cell(cells, published_col)),
             }
         )
 
@@ -241,7 +225,7 @@ SIDE_NAME_HEADINGS = frozenset(
 )
 
 
-def _column_index(headings: list[str], wanted: frozenset) -> int | None:
+def column_index(headings: list[str], wanted: frozenset) -> int | None:
     """Номер колонки, чья шапка совпала с одной из искомых (или None, если такой нет)."""
     for index, heading in enumerate(headings):
         if heading in wanted:
@@ -263,9 +247,9 @@ def _parse_sides(tab: Tag) -> list[dict]:
         return sides
 
     # Шапка таблицы свёрстана через <td>, а не <th> — <th> на этих страницах не бывает.
-    headings = [_clean(cell.get_text()).casefold() for cell in table.select("thead td")]
-    role_col = _column_index(headings, SIDE_ROLE_HEADINGS)
-    name_col = _column_index(headings, SIDE_NAME_HEADINGS)
+    headings = [clean(cell.get_text()).casefold() for cell in table.select("thead td")]
+    role_col = column_index(headings, SIDE_ROLE_HEADINGS)
+    name_col = column_index(headings, SIDE_NAME_HEADINGS)
     if role_col is None or name_col is None:
         return sides
 
@@ -274,8 +258,8 @@ def _parse_sides(tab: Tag) -> list[dict]:
         if len(cells) <= max(role_col, name_col):
             continue
 
-        role = _clean(cells[role_col].get_text())
-        full_name = _clean(cells[name_col].get_text())
+        role = clean(cells[role_col].get_text())
+        full_name = clean(cells[name_col].get_text())
         if role and full_name:
             sides.append({"role": role, "full_name": full_name})
 
@@ -301,8 +285,8 @@ def _parse_persons(tab: Tag) -> list[dict]:
     if table is None:
         return persons
 
-    headings = [_clean(cell.get_text()).casefold() for cell in table.select("thead td")]
-    name_col = _column_index(headings, PERSON_NAME_HEADINGS)
+    headings = [clean(cell.get_text()).casefold() for cell in table.select("thead td")]
+    name_col = column_index(headings, PERSON_NAME_HEADINGS)
     if name_col is None:
         return persons
 
@@ -311,14 +295,17 @@ def _parse_persons(tab: Tag) -> list[dict]:
         if len(cells) <= name_col:
             continue
 
-        full_name = _clean(cells[name_col].get_text())
+        full_name = clean(cells[name_col].get_text())
         if full_name:
             persons.append({"role": PERSON_ROLE, "full_name": full_name})
 
     return persons
 
 
-# Названия вкладок — всегда капсом.
+# Названия вкладок — всегда капсом. Ищем их по НАЧАЛУ названия (find_tab): одна и та же
+# вкладка подписана по-разному на разных порталах движка — «СТОРОНЫ» в Московской области
+# и Якутии, «СТОРОНЫ ПО ДЕЛУ» в Пермском крае. Для «ДЕЛА» это тоже важно: сверка целиком
+# спутала бы его с «ДВИЖЕНИЕМ ДЕЛА» только при поиске по вхождению, а по началу — нет.
 CARD_TAB = "ДЕЛО"
 EVENTS_TAB = "ДВИЖЕНИЕ ДЕЛА"
 SIDES_TAB = "СТОРОНЫ"
@@ -332,18 +319,18 @@ class MsudrfTypeBParser(CaseParser):
 
     def parse(self, html: str) -> dict:
         soup = BeautifulSoup(html, "lxml")
-        tabs = _tab_bodies(soup)
+        tabs = tab_bodies(soup)
 
         # === КАРТОЧКА: скалярные поля дела и судья ==========================
         # Вкладки может не быть совсем — например, если браузер отдал пустой документ.
         card: dict = {field: None for field, _ in CARD_FIELDS.values()}
         judge_names: list[str] = []
-        card_tab = tabs.get(CARD_TAB)
+        card_tab = tabs.get(CARD_TAB)  # ровно «ДЕЛО»: с «ДВИЖЕНИЕМ ДЕЛА» не спутать
         if card_tab is not None:
             card, judge_names = _parse_card(card_tab)
 
         # === ДВИЖЕНИЕ ДЕЛА: события и состояние дела ========================
-        events_tab = tabs.get(EVENTS_TAB)
+        events_tab = find_tab(tabs, EVENTS_TAB)
         events, status = (
             _parse_events(events_tab) if events_tab is not None else ([], None)
         )
@@ -351,10 +338,10 @@ class MsudrfTypeBParser(CaseParser):
         # === СТОРОНЫ И ЛИЦА ================================================
         # Обе вкладки дают стороны по делу и складываются в один список.
         sides: list[dict] = []
-        sides_tab = tabs.get(SIDES_TAB)
+        sides_tab = find_tab(tabs, SIDES_TAB)
         if sides_tab is not None:
             sides.extend(_parse_sides(sides_tab))
-        persons_tab = tabs.get(PERSONS_TAB)
+        persons_tab = find_tab(tabs, PERSONS_TAB)
         if persons_tab is not None:
             sides.extend(_parse_persons(persons_tab))
 

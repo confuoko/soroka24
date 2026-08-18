@@ -7,6 +7,7 @@
   * попытки конечны, и когда они кончились — это ВРЕМЕННЫЙ отказ, не «дело не найдено»;
   * УИД берётся со страницы, потому что из ссылки суд не выводится.
 """
+import logging
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -373,3 +374,36 @@ def test_missing_case_code_is_case_not_found() -> None:
     """Без номера дело не сохранить (он в ключе карточки) — повторять поход бессмысленно."""
     with pytest.raises(CaseNotFound):
         MsudrfCourtClient().extract_case_code(EMPTY_HTML)
+
+
+# ------------------------------------------ выбор парсера: по разметке, а не по домену
+def test_parser_is_chosen_by_the_markup_the_portal_returned(caplog) -> None:
+    """Клиент типа B, получивший карточку вёрстки C, разбирает её парсером C.
+
+    Регионы движка подключают по домену, и какая из двух вёрсток окажется на портале,
+    заранее неизвестно. Ошибка в типе не падает, а тихо даёт пустой разбор, поэтому тип
+    берём с самой страницы, а расхождение с ожиданием региона пишем в лог.
+    """
+    html = (
+        '<div class="lawcase-content"><ul id="tabs"><li>ДЕЛО</li></ul>'
+        '<div id="contentt"><div class="tab-content"><table><tbody>'
+        '<tr><td colspan="2"><h2>ОСНОВНЫЕ СВЕДЕНИЯ</h2></td></tr>'
+        "<tr><td><b>Категория</b></td><td>Споры о защите прав потребителей</td></tr>"
+        "</tbody></table></div></div></div>"
+    )
+    client = MsudrfCourtClient()
+    assert client.page_type == "B"
+
+    with caplog.at_level(logging.WARNING):
+        result = client.parse(html)
+
+    assert result["category"] == "Споры о защите прав потребителей"
+    assert "типа C" in caplog.text
+
+
+def test_expected_type_is_used_when_markup_is_unknown() -> None:
+    """Вёрстку не опознали — разбираем ожидаемым типом, а не падаем.
+
+    Пустой результат отсечёт проверка пустого разбора в app/monitoring/tasks.py.
+    """
+    assert MsudrfCourtClient().parse(EMPTY_HTML)["events"] == []
