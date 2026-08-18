@@ -374,6 +374,29 @@ def _court_by_url(url: str) -> CourtRef | None:
         return CourtRef(id=court.id, code=court.code) if court is not None else None
 
 
+def _parse_is_empty(data: dict) -> bool:
+    """Разбор не дал НИЧЕГО: ни одного поля карточки, ни одной строки таблиц.
+
+    Признак того, что у портала другая разметка, а не того, что дело пустое. Парсер по
+    контракту не падает на незнакомой странице, а возвращает пустой результат (так он
+    переживает документ, отданный браузером до окончания рендера, — см.
+    test_empty_document_parses_to_empty_result). Для только что заведённого дела это
+    поведение правильное, но если сохранить такой разбор как есть, выйдет хуже, чем
+    отказ: страница считается источником истины, поэтому у УЖЕ существующей карточки
+    sync_events удалит все события, а _reconcile отвяжет судей и стороны (см.
+    app/repositories/events.py и app/monitoring/case_update.py). Смена разметки на
+    портале молча вымела бы историю дела и записала это в diff как изменения.
+
+    Условие намеренно строгое — пусто ДОЛЖНО быть всё сразу. Порознь пустое законно:
+    у свежего дела нет ни результата, ни дат в движении, а у приказного производства не
+    бывает заседаний. А вот когда пусты и карточка, и события, и стороны, и состояние —
+    такой страницы у поддержанных порталов не бывает.
+
+    url не учитываем: его дописывает задача уже после разбора.
+    """
+    return not any(value for key, value in data.items() if key != "url")
+
+
 def _resolve_card_uid(html: str, source_url: str, url_court: CourtRef) -> str:
     """Чем опознавать карточку, пришедшую ссылкой: УИД со страницы или самодельный ключ.
 
@@ -638,6 +661,23 @@ def _sync_case(celery_task, task_id: int) -> None:
                 court=court, code=card.code,
             )
             failures.append(f"{card.code}: не удалось разобрать страницу: {exc}")
+            continue
+
+        # Пустой разбор считаем ошибкой разметки и НЕ сохраняем: иначе обход затрёт
+        # события, судей и стороны уже сохранённой карточки. Разметку потом смотрят по
+        # снапшоту — он лёг в S3 выше, до разбора.
+        if _parse_is_empty(data):
+            error = (
+                "разбор не дал ни одного поля — похоже, у портала другая разметка "
+                f"(тип страницы {client.page_type})"
+            )
+            logger.warning("Дело %s, карточка %s: %s", uid, card.code, error)
+            _record_parse_entry(
+                uid, STATUS_PARSE_ERROR, fetched_at, task_id,
+                snapshot=snapshot, error=error, html_unchanged=html_unchanged,
+                court=court, code=card.code,
+            )
+            failures.append(f"{card.code}: {error}")
             continue
 
         # 3d. Создать/обновить карточку со сверкой судей/сторон/событий.

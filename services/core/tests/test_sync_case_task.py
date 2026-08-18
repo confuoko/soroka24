@@ -363,6 +363,77 @@ def test_page_without_case_number_is_still_a_final_failure(
     assert "номера дела" in last_error
 
 
+def test_empty_parse_is_a_failure_and_does_not_touch_the_card(
+    url_task_id, url_court, monkeypatch
+) -> None:
+    """Разбор не дал ничего → ошибка разбора, карточку не трогаем.
+
+    Так выглядит чужая разметка: парсер на незнакомой странице не падает, а возвращает
+    пустой результат. Сохранить его нельзя — страница считается источником истины, и у уже
+    существующей карточки обход удалил бы все события и отвязал судей и стороны.
+    """
+
+    class _Client:
+        page_type = "B"
+
+        def fetch_case_html_by_url(self, url):
+            return f"<html>чужая разметка, УИД {URL_CASE_UID}</html>"
+
+        def extract_case_code(self, html):
+            return "2-370/4520"
+
+        def parse(self, html):
+            # Ровно то, что отдаёт парсер типа B на разметке типа C с другими вкладками.
+            return {
+                "receipt_date": None,
+                "category": None,
+                "status": None,
+                "judge_names": [],
+                "sides": [],
+                "events": [],
+                "place_history": [],
+                "court_sessions": [],
+                "documents": [],
+            }
+
+    monkeypatch.setattr(
+        tasks, "define_court_by_url", lambda url, proxy=None, **kw: _Client()
+    )
+    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: (None, False))
+    monkeypatch.setattr(
+        tasks,
+        "update_case",
+        lambda *a, **kw: pytest.fail("пустой разбор сохранять нельзя"),
+    )
+
+    tasks._sync_case(_StubTask(retries=0), url_task_id)
+
+    status, last_error, _ = _status(url_task_id)
+    assert status is SearchStatus.FAILED
+    assert "другая разметка" in last_error
+
+
+def test_one_filled_field_is_enough_to_save(url_task_id, url_court, monkeypatch) -> None:
+    """У свежего дела карточка почти пуста — это НЕ ошибка разметки, дело сохраняем.
+
+    Граница проверки: пустым должно быть всё сразу. У только что заведённого дела нет ни
+    результата, ни дат в движении, но состояние с портала есть — этого достаточно.
+    """
+    client = _client_returning(
+        f"<html>Дело № 2-370/4520, УИД {URL_CASE_UID}</html>"
+    )
+    client.parse = lambda html: {
+        "status": "Назначено судебное заседание",
+        "judge_names": [],
+        "sides": [],
+        "events": [],
+    }
+
+    captured = _run_url_task_capturing_uid(url_task_id, monkeypatch, client)
+
+    assert captured["uid"] == URL_CASE_UID
+
+
 def test_url_task_fails_when_host_is_not_in_reference(url_task_id, monkeypatch) -> None:
     """Хоста нет в справочнике → задача падает сразу, на портал не ходим.
 
