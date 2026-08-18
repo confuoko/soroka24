@@ -45,6 +45,7 @@ from app.courts.msudrf_court import (
     ING_DOMAIN,
     IRK_DOMAIN,
     IWN_DOMAIN,
+    KAR_DOMAIN,
     KBR_DOMAIN,
     KCHR_DOMAIN,
     KIR_DOMAIN,
@@ -52,6 +53,7 @@ from app.courts.msudrf_court import (
     KLN_DOMAIN,
     KMCH_DOMAIN,
     KMR_DOMAIN,
+    KOMI_DOMAIN,
     KRD_DOMAIN,
     KRG_DOMAIN,
     KST_DOMAIN,
@@ -124,6 +126,8 @@ COURT_BY_DOMAIN = {
     BKR_DOMAIN: MsudrfCourtClient,  # 215 мировых судов Республики Башкортостан
     BUR_DOMAIN: MsudrfCourtClient,  # 54 мировых суда Республики Бурятия
     DAG_DOMAIN: MsudrfCourtClient,  # 131 мировой суд Республики Дагестан
+    KAR_DOMAIN: MsudrfCourtClient,  # 38 мировых судов Республики Карелия
+    KOMI_DOMAIN: MsudrfCourtClient,  # 60 мировых судов Республики Коми
     # 23 мировых суда Республики Ингушетия. Разметку карточки здесь ещё НЕ смотрели —
     # карточки для проверки не было, регион подключён «по домену», как и ЕАО выше. Если
     # окажется, что это вторая разметка движка, регион надо будет перевести на
