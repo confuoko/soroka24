@@ -54,6 +54,10 @@ from app.courts.msudrf_court import (
     LO_DOMAIN,
     LPK_DOMAIN,
     MO_DOMAIN,
+    MRM_DOMAIN,
+    NNOV_DOMAIN,
+    NVG_DOMAIN,
+    OMS_DOMAIN,
     VLD_DOMAIN,
     VOL_DOMAIN,
     VRN_DOMAIN,
@@ -101,6 +105,10 @@ COURT_BY_DOMAIN = {
     KRG_DOMAIN: MsudrfCourtClient,  # 53 мировых суда Курганской области
     LO_DOMAIN: MsudrfCourtClient,  # 87 мировых судов Ленинградской области
     LPK_DOMAIN: MsudrfCourtClient,  # 64 мировых суда Липецкой области
+    MRM_DOMAIN: MsudrfCourtClient,  # 48 мировых судов Мурманской области
+    NNOV_DOMAIN: MsudrfCourtClient,  # 179 мировых судов Нижегородской области
+    NVG_DOMAIN: MsudrfCourtClient,  # 41 мировой суд Новгородской области
+    OMS_DOMAIN: MsudrfCourtClient,  # 114 мировых судов Омской области
     # Магаданской области здесь НЕТ намеренно: у неё вторая разметка движка (тип C) и,
     # что важнее, на карточках нет УИД — сохранять дело было бы нечем. Подробности и
     # проверка — в комментарии к MAG_DOMAIN (app/courts/msudrf_court.py).
