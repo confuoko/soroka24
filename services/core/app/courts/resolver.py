@@ -37,8 +37,12 @@ from app.courts.msudrf_court import (
     AMR_DOMAIN,
     ARH_DOMAIN,
     AST_DOMAIN,
+    BKR_DOMAIN,
     BLG_DOMAIN,
+    BUR_DOMAIN,
+    DAG_DOMAIN,
     EAO_DOMAIN,
+    ING_DOMAIN,
     IRK_DOMAIN,
     IWN_DOMAIN,
     KBR_DOMAIN,
@@ -58,6 +62,9 @@ from app.courts.msudrf_court import (
     NNOV_DOMAIN,
     NVG_DOMAIN,
     OMS_DOMAIN,
+    PNZ_DOMAIN,
+    PRM_DOMAIN,
+    RALT_DOMAIN,
     VLD_DOMAIN,
     VOL_DOMAIN,
     VRN_DOMAIN,
@@ -109,6 +116,19 @@ COURT_BY_DOMAIN = {
     NNOV_DOMAIN: MsudrfCourtClient,  # 179 мировых судов Нижегородской области
     NVG_DOMAIN: MsudrfCourtClient,  # 41 мировой суд Новгородской области
     OMS_DOMAIN: MsudrfCourtClient,  # 114 мировых судов Омской области
+    PNZ_DOMAIN: MsudrfCourtClient,  # 76 мировых судов Пензенской области
+    PRM_DOMAIN: MsudrfCourtClient,  # 109 мировых судов Приморского края
+    # 14 мировых судов Республики Алтай. Домен отличается от Алтайского края (ALT_DOMAIN)
+    # одной буквой, и различает их только точка в define_court_by_url — см. RALT_DOMAIN.
+    RALT_DOMAIN: MsudrfCourtClient,
+    BKR_DOMAIN: MsudrfCourtClient,  # 215 мировых судов Республики Башкортостан
+    BUR_DOMAIN: MsudrfCourtClient,  # 54 мировых суда Республики Бурятия
+    DAG_DOMAIN: MsudrfCourtClient,  # 131 мировой суд Республики Дагестан
+    # 23 мировых суда Республики Ингушетия. Разметку карточки здесь ещё НЕ смотрели —
+    # карточки для проверки не было, регион подключён «по домену», как и ЕАО выше. Если
+    # окажется, что это вторая разметка движка, регион надо будет перевести на
+    # MsudrfTypeCCourtClient, когда напишут парсер типа C.
+    ING_DOMAIN: MsudrfCourtClient,
     # Магаданской области здесь НЕТ намеренно: у неё вторая разметка движка (тип C) и,
     # что важнее, на карточках нет УИД — сохранять дело было бы нечем. Подробности и
     # проверка — в комментарии к MAG_DOMAIN (app/courts/msudrf_court.py).

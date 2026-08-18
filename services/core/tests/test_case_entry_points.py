@@ -70,17 +70,29 @@ def test_altai_krai_url_resolves_to_msudrf_client() -> None:
         assert isinstance(define_court_by_url(url), MsudrfCourtClient)
 
 
-def test_altai_republic_is_not_altai_krai() -> None:
-    """Республика Алтай сидит на *.ralt.msudrf.ru — это ДРУГОЙ регион, его не обслуживаем.
+def test_altai_republic_and_krai_are_separate_domains() -> None:
+    """Республика Алтай (*.ralt) и Алтайский край (*.alt) — РАЗНЫЕ регионы движка.
 
-    Ровно тот случай, ради которого домен сверяется по границе имени: без ведущей точки
-    endswith("alt.msudrf.ru") затянул бы сюда все 14 судов республики (код 02MS), и
-    браузер пошёл бы в регион, разметку которого никто не смотрел.
+    Подключены оба, поэтому перепутать их теперь не «обидно», а опасно: у края 143 суда с
+    кодом 22MS, у республики 14 с кодом 02MS, и дело привязалось бы к чужому суду. Держится
+    различие на одной точке в define_court_by_url: без неё endswith("alt.msudrf.ru")
+    накрывает и республику.
+
+    Границу проверяем на ВЫДУМАННОМ домене: реальных вторых уровней, кончающихся на
+    "alt.msudrf.ru", на движке ровно два — alt и ralt, оба подключены, и отрицательного
+    примера из живых регионов взять негде. Если бы сравнение шло без точки, *.qalt тоже
+    прошёл бы за Алтайский край.
     """
-    assert is_supported_url("https://galtms1.ralt.msudrf.ru/case") is False
+    for url in (
+        "https://galtms1.ralt.msudrf.ru/case",
+        "http://ulagan.ralt.msudrf.ru/x",
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfCourtClient)
+
+    assert is_supported_url("https://1.qalt.msudrf.ru/case") is False
 
     with pytest.raises(UnsupportedCourt):
-        define_court_by_url("https://galtms1.ralt.msudrf.ru/case")
+        define_court_by_url("https://1.qalt.msudrf.ru/case")
 
 
 def test_amur_oblast_url_resolves_to_msudrf_client() -> None:
@@ -147,11 +159,13 @@ def test_voronezh_url_resolves_to_msudrf_client() -> None:
 def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
     """Тот же движок в чужом регионе пока не обслуживаем.
 
-    Движок общий для 71 региона, но разметку мы смотрели только на девяти из них (список —
-    в COURT_BY_DOMAIN), поэтому обещать остальные 4963 суда, ни разу их не открыв, нельзя.
+    Движок общий для 72 регионов, но разметку мы смотрели только на части из них (список —
+    в COURT_BY_DOMAIN), поэтому обещать остальные 2716 судов, ни разу их не открыв, нельзя.
     Подключается регион одной строкой в COURT_BY_DOMAIN — когда его разметку проверят.
     """
-    for url in ("http://1.bkr.msudrf.ru/x", "https://maikop1.adg.msudrf.ru/y"):
+    # Ростовская область — самый большой из неподключённых регионов движка (230 судов),
+    # Адыгея — один из самых маленьких (24).
+    for url in ("http://1.ros.msudrf.ru/x", "https://maikop1.adg.msudrf.ru/y"):
         assert is_supported_url(url) is False
         with pytest.raises(UnsupportedCourt):
             define_court_by_url(url)
