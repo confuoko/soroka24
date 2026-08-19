@@ -229,6 +229,19 @@ def test_perm_krai_and_primorsky_krai_are_separate_domains() -> None:
         ("https://1.sar.msudrf.ru/x", "B"),         # Саратовская область, 134 суда
         ("https://1vis.svd.msudrf.ru/x", "B"),      # Свердловская область, 219 судов
         ("https://26.twr.msudrf.ru/x", "B"),        # Тверская область, 83 суда
+        # Партия «Томская … Ярославская»: разметку смотрели у всех, кроме Тюменской и
+        # Чувашской — те подключены вслепую.
+        ("https://asi1.tms.msudrf.ru/x", "B"),      # Томская область, 56 судов
+        ("https://74.tula.msudrf.ru/x", "B"),       # Тульская область, 83 суда
+        ("https://abatsk.tyum.msudrf.ru/x", "B"),   # Тюменская область, 74 суда на движке
+        ("https://indmir1.udm.msudrf.ru/x", "B"),   # Удмуртская Республика, 85 судов
+        ("https://1zasvrn.uln.msudrf.ru/x", "B"),   # Ульяновская область, 71 суд
+        ("https://29.hbr.msudrf.ru/x", "B"),        # Хабаровский край, 75 судов
+        ("https://alat1.chv.msudrf.ru/x", "B"),     # Чувашская Республика, 68 судов
+        ("https://anadyr-r.chao.msudrf.ru/x", "B"), # Чукотский АО, 4 суда
+        ("https://2dzr.jrs.msudrf.ru/x", "B"),      # Ярославская область, 70 судов
+        # Челябинская область — вторая вёрстка движка.
+        ("https://sovchel2.chel.msudrf.ru/x", "C"), # Челябинская область, 183 суда
     ],
 )
 def test_new_regions_resolve_with_the_expected_layout(url, page_type) -> None:
@@ -278,11 +291,11 @@ def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
     в COURT_BY_DOMAIN), поэтому обещать остальные 2618 судов, ни разу их не открыв, нельзя.
     Подключается регион одной строкой в COURT_BY_DOMAIN — когда его разметку проверят.
     """
-    # Челябинская область — самый большой из неподключённых регионов движка (183 суда),
+    # Новосибирская область — самый большой из неподключённых регионов движка (138 судов),
     # Брянская — регион со второй вёрсткой карточки, куда пока не ходили (76 судов).
-    # Здесь раньше стояли Адыгея и Ростовская область — обе теперь подключены, см. тесты
-    # ниже. Неподключённых доменов движка осталось 18, судов в них 1229.
-    for url in ("http://1.chel.msudrf.ru/x", "https://12.brj.msudrf.ru/y"):
+    # Здесь по очереди стояли Адыгея, Ростовская и Челябинская области — все теперь
+    # подключены. Неподключённых доменов движка осталось 8, судов в них 460.
+    for url in ("http://1.nsk.msudrf.ru/x", "https://12.brj.msudrf.ru/y"):
         assert is_supported_url(url) is False
         with pytest.raises(UnsupportedCourt):
             define_court_by_url(url)

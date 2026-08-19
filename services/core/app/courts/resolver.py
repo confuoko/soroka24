@@ -43,11 +43,15 @@ from app.courts.msudrf_court import (
     BKR_DOMAIN,
     BLG_DOMAIN,
     BUR_DOMAIN,
+    CHAO_DOMAIN,
+    CHEL_DOMAIN,
+    CHV_DOMAIN,
     DAG_DOMAIN,
     HAK_DOMAIN,
     EAO_DOMAIN,
     ING_DOMAIN,
     IRK_DOMAIN,
+    HBR_DOMAIN,
     IWN_DOMAIN,
     KAR_DOMAIN,
     KBR_DOMAIN,
@@ -59,6 +63,7 @@ from app.courts.msudrf_court import (
     KMR_DOMAIN,
     KOMI_DOMAIN,
     KRD_DOMAIN,
+    JRS_DOMAIN,
     KRG_DOMAIN,
     KST_DOMAIN,
     LO_DOMAIN,
@@ -81,8 +86,13 @@ from app.courts.msudrf_court import (
     SML_DOMAIN,
     SVD_DOMAIN,
     TMB_DOMAIN,
+    TMS_DOMAIN,
+    TULA_DOMAIN,
     TUVA_DOMAIN,
     TWR_DOMAIN,
+    TYUM_DOMAIN,
+    UDM_DOMAIN,
+    ULN_DOMAIN,
     VLD_DOMAIN,
     VOL_DOMAIN,
     VRN_DOMAIN,
@@ -170,6 +180,21 @@ COURT_BY_DOMAIN = {
     # 83 мировых суда Тверской области, тоже вслепую. У 69MS0045 адрес в справочнике записан
     # склеенно (26twr.msudrf.ru) — оба написания раскрывает host_variants.
     TWR_DOMAIN: MsudrfCourtClient,
+    TMS_DOMAIN: MsudrfCourtClient,  # 56 мировых судов Томской области
+    TULA_DOMAIN: MsudrfCourtClient,  # 83 мировых суда Тульской области
+    # 74 мировых суда Тюменской области (код 72MS). Ещё 78 судов, которые справочник
+    # относит к этому же региону, — это Ханты-Мансийский АО (86MS) на портале mirsud86.ru,
+    # он не поддержан вовсе. Подключено вслепую: карточек не смотрели.
+    TYUM_DOMAIN: MsudrfCourtClient,
+    UDM_DOMAIN: MsudrfCourtClient,  # 85 мировых судов Удмуртской Республики
+    ULN_DOMAIN: MsudrfCourtClient,  # 71 мировой суд Ульяновской области
+    HBR_DOMAIN: MsudrfCourtClient,  # 75 мировых судов Хабаровского края
+    # 183 мировых суда Челябинской области — вторая вёрстка движка, тип C.
+    CHEL_DOMAIN: MsudrfTypeCCourtClient,
+    # 68 мировых судов Чувашской Республики. Подключено вслепую: карточек не смотрели.
+    CHV_DOMAIN: MsudrfCourtClient,
+    CHAO_DOMAIN: MsudrfCourtClient,  # 4 мировых суда Чукотского АО — самый малый регион
+    JRS_DOMAIN: MsudrfCourtClient,  # 70 мировых судов Ярославской области
     BKR_DOMAIN: MsudrfCourtClient,  # 215 мировых судов Республики Башкортостан
     BUR_DOMAIN: MsudrfCourtClient,  # 54 мировых суда Республики Бурятия
     DAG_DOMAIN: MsudrfCourtClient,  # 131 мировой суд Республики Дагестан

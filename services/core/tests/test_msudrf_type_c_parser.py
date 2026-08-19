@@ -14,7 +14,9 @@
   * case_t-h_nouid-17MS0019-f5dac9426099.html — Республика Тыва, уголовное со вкладкой
     «ЛИЦА»: она тоже транспонирована, и ФИО подсудимого лежит в строке «ФИО подсудимого»;
   * case_57_nouid-62MS0068-c95d1c425ddd.html — Рязанская область: та же вёрстка в третьем
-    регионе, проверка что дело не в одном портале.
+    регионе, проверка что дело не в одном портале;
+  * case_metallurgchel6_nouid-74MS0038-846f38f4e96f.html — Челябинская область, уголовное:
+    вкладка «ЛИЦА» этой же вёрстки в четвёртом регионе.
 
 УИД ни на одной из этих страниц нет — карточкам достаётся самодельный ключ от ссылки
 (synthetic_uid в app/validators.py), поэтому так названы и файлы фикстур.
@@ -31,6 +33,7 @@ PERM_KOAP = "case_96_nouid-59MS0096-75a9a5a05233.html"
 PERM_CRIMINAL = "case_96_nouid-59MS0096-8ea6caa0770d.html"
 TUVA_CRIMINAL = "case_t-h_nouid-17MS0019-f5dac9426099.html"
 RYAZAN_CIVIL = "case_57_nouid-62MS0068-c95d1c425ddd.html"
+CHEL_CRIMINAL = "case_metallurgchel6_nouid-74MS0038-846f38f4e96f.html"
 
 
 def _parse(filename: str) -> dict:
@@ -203,3 +206,17 @@ def test_same_layout_in_a_third_region() -> None:
         {"role": "Материальный истец", "full_name": 'АО ПКО "ЦДУ"'},
         {"role": "Ответчик", "full_name": "Лихов Иван Андреевич"},
     ]
+
+
+def test_chelyabinsk_criminal_case_keeps_person_and_events() -> None:
+    """Челябинская область: та же вёрстка C, вкладка «ЛИЦА», пять событий.
+
+    Регион большой (183 суда), и до появления разбора типа C все его дела возвращали пустой
+    результат — то есть отсекались проверкой пустого разбора в app/monitoring/tasks.py.
+    """
+    card = _parse(CHEL_CRIMINAL)
+
+    assert card["judge_names"] == ["Дубина Людмила Юрьевна"]
+    assert card["first_instance_decision"] == "Постановление о прекращении уголовного дела"
+    assert len(card["events"]) == 5
+    assert card["sides"] == [{"role": "Лицо", "full_name": "Хоруженко Андрей Вячеславович"}]
