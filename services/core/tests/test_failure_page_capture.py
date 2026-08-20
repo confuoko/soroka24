@@ -1,10 +1,12 @@
-"""Тесты сохранения страницы, на которой упал парсинг.
+"""Тесты снимка страницы, на которой упал парсинг.
 
-Ни сети, ни Chromium, ни записи в S3: браузер подменён заглушкой, save_snapshot —
-регистратором вызовов. Проверяем три вещи:
+Ни сети, ни Chromium: браузер подменён заглушкой. Проверяем две вещи:
   * клиент суда прикладывает к ошибке снимок страницы (снять его можно только там);
-  * при отказе страница уходит в подпапку failed/, при успехе — в обычную папку дела;
-  * ключ страницы отказа никогда не переиспользуется для карточки.
+  * HTTP-статус из этого снимка доезжает до SearchTask.page_status — по нему потом
+    видно, отказал портал (403) или упало раньше.
+
+Сама страница отказа больше никуда не сохраняется: архив разметки в S3 остался только
+для отладки парсеров успешных карточек и по умолчанию выключен.
 """
 from datetime import datetime
 from types import SimpleNamespace
@@ -16,7 +18,6 @@ from app.courts import moscow_mir_court
 from app.models.database import SearchStatus, SearchTask, session_scope
 from app.monitoring import tasks
 from app.repositories import SearchTaskRepository
-from app.storage.html_snapshots import is_failure_key
 
 CASE_UID = "77MS0002-01-2026-000004-44"
 CAPTCHA_HTML = "<html><body>Подтвердите, что вы не робот</body></html>"
@@ -202,22 +203,7 @@ def test_card_page_error_does_not_reach_parser(stub_browser) -> None:
     assert caught.value.page.html == CARD_HTML
 
 
-# ------------------------------------------------------ куда кладём страницу отказа
-@pytest.fixture
-def recorded_uploads(monkeypatch):
-    """Перехватить save_snapshot: в S3 в тестах не пишем, только фиксируем вызовы."""
-    calls = []
-
-    def _fake_save(uid, html, fetched_at, failed=False, card=None):
-        folder = "failed/" if failed else (f"{card}/" if card else "")
-        key = f"html_snapshots/{uid}/{folder}{uid}_stub.html.gz"
-        calls.append({"uid": uid, "html": html, "failed": failed, "card": card, "key": key})
-        return {"html_bucket": "soroka", "html_key": key, "html_sha256": "sha", "html_size": len(html)}
-
-    monkeypatch.setattr(tasks, "save_snapshot", _fake_save)
-    return calls
-
-
+# ----------------------------------------------- статус страницы отказа доезжает в БД
 @pytest.fixture
 def task_id():
     """Реальная строка search_task; после теста удаляется."""
@@ -247,8 +233,8 @@ class _StubTask:
         raise AssertionError("ретрай в этом тесте не ожидается")
 
 
-def test_failure_page_goes_to_failed_subfolder(task_id, recorded_uploads, monkeypatch) -> None:
-    """Страница отказа уходит в html_snapshots/<уид>/failed/, а page_status — в задачу."""
+def test_failure_page_status_reaches_the_task(task_id, monkeypatch) -> None:
+    """HTTP-статус страницы, на которой отказали, уходит в SearchTask.page_status."""
     failure = FetchFailed(
         CASE_UID,
         TimeoutError("Page.fill: Timeout 30000ms exceeded."),
@@ -264,20 +250,14 @@ def test_failure_page_goes_to_failed_subfolder(task_id, recorded_uploads, monkey
 
     tasks._sync_case(_StubTask(retries=_StubTask.max_retries), task_id)
 
-    assert len(recorded_uploads) == 1
-    upload = recorded_uploads[0]
-    assert upload["failed"] is True
-    assert upload["html"] == CAPTCHA_HTML
-    assert is_failure_key(upload["key"])
-
     row = _row(task_id)
     assert row.status is SearchStatus.FAILED
     # Колонка page_status до этого не заполнялась ничем и была NULL у всех задач.
     assert row.page_status == 403
 
 
-def test_nothing_saved_when_error_has_no_page(task_id, recorded_uploads, monkeypatch) -> None:
-    """Упали до открытия страницы — сохранять нечего, хранилище не засоряем."""
+def test_page_status_is_empty_when_error_has_no_page(task_id, monkeypatch) -> None:
+    """Упали до открытия страницы — снимка нет, статусу взяться неоткуда."""
 
     def _boom(uid: str, proxy=None, **kwargs):
         raise TimeoutError("сеть недоступна")
@@ -286,74 +266,4 @@ def test_nothing_saved_when_error_has_no_page(task_id, recorded_uploads, monkeyp
 
     tasks._sync_case(_StubTask(retries=_StubTask.max_retries), task_id)
 
-    assert recorded_uploads == []
     assert _row(task_id).page_status is None
-
-
-# ------------------------------- ключ отказа не должен переиспользоваться карточкой
-@pytest.fixture
-def previous_entry(monkeypatch):
-    """Подменить «предыдущую запись истории парсинга» дела на заданную."""
-
-    def _install(entry: dict):
-        monkeypatch.setattr(
-            tasks,
-            "CaseRepository",
-            lambda session: SimpleNamespace(
-                get_by_uid_court_code=lambda uid, court_id, code: object()
-            ),
-        )
-        monkeypatch.setattr(tasks, "last_entry", lambda case: entry)
-
-    return _install
-
-
-# Суд карточки: в этих тестах важно только то, что он есть — от него берётся код для
-# папки снапшота.
-STUB_COURT = tasks.CourtRef(id=1, code="77MS0002")
-STUB_CODE = "05-0444/2/2026"
-
-
-def test_snapshot_key_reused_after_successful_parse(previous_entry, recorded_uploads) -> None:
-    """Разметка не изменилась с прошлого УСПЕШНОГО раза → повторно не заливаем."""
-    sha = tasks.snapshot_sha256(CARD_HTML)
-    previous_entry(
-        {
-            "html_key": f"html_snapshots/{CASE_UID}/{CASE_UID}_2026-08-04T15-00-00Z.html.gz",
-            "html_bucket": "soroka",
-            "html_sha256": sha,
-            "html_size": len(CARD_HTML),
-        }
-    )
-
-    snapshot, unchanged = tasks._take_snapshot(
-        CASE_UID, CARD_HTML, datetime(2026, 8, 4, 16, 0, 0), STUB_COURT, STUB_CODE
-    )
-
-    assert unchanged is True
-    assert recorded_uploads == []
-
-
-def test_failure_key_is_never_reused_for_a_card(previous_entry, recorded_uploads) -> None:
-    """Последней записью был отказ — его ключ карточке подставлять нельзя.
-
-    Иначе история дела ссылалась бы на капчу как на разобранную карточку.
-    """
-    sha = tasks.snapshot_sha256(CARD_HTML)
-    previous_entry(
-        {
-            "html_key": f"html_snapshots/{CASE_UID}/failed/{CASE_UID}_2026-08-04T15-00-00Z.html.gz",
-            "html_bucket": "soroka",
-            "html_sha256": sha,  # тот же sha — но ключ из failed/, переиспользовать нельзя
-            "html_size": len(CARD_HTML),
-        }
-    )
-
-    snapshot, unchanged = tasks._take_snapshot(
-        CASE_UID, CARD_HTML, datetime(2026, 8, 4, 16, 0, 0), STUB_COURT, STUB_CODE
-    )
-
-    assert unchanged is False
-    assert len(recorded_uploads) == 1
-    assert recorded_uploads[0]["failed"] is False
-    assert not is_failure_key(snapshot["html_key"])

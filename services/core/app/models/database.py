@@ -18,6 +18,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Numeric,
     String,
     Table,
@@ -91,6 +92,27 @@ class CourtLevel(str, enum.Enum):
     GENERAL = "general"  # суд общей юрисдикции (районный/городской)
     APPEAL = "appeal"    # апелляционный
     KAS = "kas"          # кассационный
+
+
+# Тип доменного изменения по делу — по одному значению на каждую ветку CaseChanges.
+# Словарь закрытый (его задаёт сама сверка, а не портал), поэтому это enum, а не строка.
+class OutboxEventType(str, enum.Enum):
+    CASE_FIELD_CHANGED = "case_field_changed"  # изменилось скалярное поле дела
+    EVENT_NEW = "event_new"                    # новая строка «Истории состояний»
+    EVENT_UPDATED = "event_updated"            # у события поменялся документ/дата публикации
+    EVENT_REMOVED = "event_removed"            # событие пропало со страницы
+    PLACE_NEW = "place_new"                    # новая строка «Истории местонахождения»
+    PLACE_UPDATED = "place_updated"            # у местонахождения поменялся комментарий
+    PLACE_REMOVED = "place_removed"            # местонахождение пропало со страницы
+    SESSION_NEW = "session_new"                # назначено судебное заседание
+    SESSION_UPDATED = "session_updated"        # у заседания поменялись место/результат/основание
+    SESSION_REMOVED = "session_removed"        # заседание снято со страницы
+    DOCUMENT_NEW = "document_new"              # новый документ по делу
+    DOCUMENT_REMOVED = "document_removed"      # документ пропал со страницы
+    JUDGE_ADDED = "judge_added"                # к делу привязан судья
+    JUDGE_REMOVED = "judge_removed"            # судья отвязан от дела
+    SIDE_ADDED = "side_added"                  # к делу привязана сторона
+    SIDE_REMOVED = "side_removed"              # сторона отвязана от дела
 
 
 # --- Связующие таблицы many-to-many ------------------------------------------
@@ -197,10 +219,9 @@ class Case(Base):
     # Когда запись создана в БД (значение проставляет сервер БД).
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     # Когда строку последний раз трогали в БД (обновляется автоматически при UPDATE).
-    # Показывать это пользователю как «дата обновления дела» НЕЛЬЗЯ: на каждом обходе
-    # дозаписывается diff_history, то есть строка обновляется всегда, даже когда на
-    # портале ничего не изменилось. Для пользователя есть last_checked_at и
-    # last_changed_at.
+    # Показывать это пользователю как «дата обновления дела» НЕЛЬЗЯ: строку трогает любой
+    # обход (например, отметкой last_checked_at), даже когда на портале ничего не
+    # изменилось. Для пользователя есть last_checked_at и last_changed_at.
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now()
     )
@@ -218,15 +239,6 @@ class Case(Base):
     # Когда на портале последний раз что-то РЕАЛЬНО изменилось (сверка дала непустой
     # diff). Именно это пользователь и называет «дата последнего обновления дела».
     last_changed_at: Mapped[datetime | None] = mapped_column(DateTime)
-
-    # История парсингов дела: по одной записи на КАЖДЫЙ вызов парсинга, включая
-    # «изменений нет» и «сайт суда не открылся». Формат записи и дозапись —
-    # в app/monitoring/parse_history.py (append_parse_entry).
-    # ВАЖНО: SQLAlchemy не отслеживает мутацию списка на месте (diff_history.append(...)
-    # НЕ попадёт в UPDATE). Дозаписывать только переприсваиванием всего списка.
-    diff_history: Mapped[list[dict]] = mapped_column(
-        JSONB, default=list, server_default=text("'[]'::jsonb")
-    )
 
     # Группа связанных дел; при удалении группы поле обнуляется (SET NULL), дело живёт.
     case_link_id: Mapped[int | None] = mapped_column(
@@ -763,3 +775,41 @@ class CaptchaSolve(Base):
 
     def __str__(self) -> str:
         return f"{self.provider} #{self.provider_task_id}: {self.cost} {self.currency}"
+
+
+class OutboxEvent(Base):
+    """Одно обнаруженное изменение по делу (outbox pattern).
+
+    Пишется в ТОЙ ЖЕ транзакции, что и само изменение дела (см. app/monitoring/tasks.py):
+    поэтому событие не может потеряться и не может появиться без изменения в карточке.
+
+    Таблица append-only: строки не редактируются и не удаляются. Полей доставки
+    («отправлено», «попыток») здесь намеренно нет — на дело подписано несколько
+    пользователей, и пометка на самой строке потеряла бы событие для всех, кроме первого.
+    Кому что уже показано — знание клиентского сервиса: он отбирает события по created_at,
+    начиная с момента, когда пользователь поставил дело на мониторинг.
+    """
+
+    __tablename__ = "outbox_event"
+
+    # Составной индекс — ровно форма клиентского запроса «события дела после момента X».
+    __table_args__ = (
+        Index("ix_outbox_event_case_created", "case_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Карточка, по которой обнаружено изменение. Удалили дело — уносим и его события.
+    case_id: Mapped[int] = mapped_column(
+        ForeignKey("case.id", ondelete="CASCADE"), index=True
+    )
+    # Что именно произошло: по значению клиент выбирает текст уведомления.
+    event_type: Mapped[OutboxEventType] = mapped_column(
+        Enum(OutboxEventType), index=True
+    )
+    # Суть изменения: состав полей зависит от типа (см. app/monitoring/outbox.py).
+    payload: Mapped[dict] = mapped_column(JSONB)
+    # Когда изменение ОБНАРУЖЕНО (момент коммита обхода). Это и есть курсор клиента.
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+
+    def __str__(self) -> str:
+        return f"{self.event_type.value} по делу #{self.case_id}"

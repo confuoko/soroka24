@@ -1,8 +1,8 @@
 """Тесты диффа скалярных полей карточки дела.
 
 Раньше upsert молча перезаписывал поля, поэтому смена «Текущего состояния» или
-появление решения первой инстанции нигде не были видны — ни в Case.diff_history, ни в
-логах. Теперь метод возвращает список изменений.
+появление решения первой инстанции нигде не были видны. Теперь метод возвращает список
+изменений — из него строятся события мониторинга (app/monitoring/outbox.py).
 
 Карточка ищется по тройке «УИД + суд + номер дела»: УИД не уникален (не меняется при
 переходе дела по инстанциям), и пара с судом тоже (в одном суде по УИД бывает несколько
@@ -32,7 +32,7 @@ FIRST_PARSE = {
 
 def test_new_case_has_no_field_changes(session, court) -> None:
     """У нового дела дифф полей пустой: появление дела — само по себе событие."""
-    case, changes = CaseRepository(session).upsert_by_uid_court_code(
+    case, changes, _ = CaseRepository(session).upsert_by_uid_court_code(
         CASE_UID, court, CASE_CODE, FIRST_PARSE
     )
 
@@ -54,7 +54,7 @@ def test_changed_field_is_reported(session, court) -> None:
         first_instance_decision="Удовлетворено, 30.07.2026",
     )
 
-    case, changes = repo.upsert_by_uid_court_code(CASE_UID, court, CASE_CODE, second)
+    case, changes, _ = repo.upsert_by_uid_court_code(CASE_UID, court, CASE_CODE, second)
 
     by_field = {c.field: c for c in changes}
     assert set(by_field) == {"status", "first_instance_date", "first_instance_decision"}
@@ -71,7 +71,7 @@ def test_repeated_parse_gives_no_changes(session, court) -> None:
     repo.upsert_by_uid_court_code(CASE_UID, court, CASE_CODE, FIRST_PARSE)
     session.flush()
 
-    _, changes = repo.upsert_by_uid_court_code(CASE_UID, court, CASE_CODE, dict(FIRST_PARSE))
+    _, changes, _ = repo.upsert_by_uid_court_code(CASE_UID, court, CASE_CODE, dict(FIRST_PARSE))
 
     assert changes == []
 
@@ -89,7 +89,7 @@ def test_value_disappearing_from_page_is_reported(session, court) -> None:
 
     moved = dict(FIRST_PARSE, receipt_date=None, registration_date=date(2026, 6, 8))
 
-    case, changes = repo.upsert_by_uid_court_code(CASE_UID, court, CASE_CODE, moved)
+    case, changes, _ = repo.upsert_by_uid_court_code(CASE_UID, court, CASE_CODE, moved)
 
     by_field = {c.field: c for c in changes}
     assert by_field["receipt_date"].new is None
@@ -110,7 +110,7 @@ def test_acceptance_date_is_stored_and_diffed(session, court) -> None:
     )
     session.flush()
 
-    case, changes = repo.upsert_by_uid_court_code(
+    case, changes, _ = repo.upsert_by_uid_court_code(
         CASE_UID, court, CASE_CODE, dict(FIRST_PARSE, accepted_date=date(2026, 6, 11))
     )
 
@@ -131,7 +131,7 @@ def test_missing_key_leaves_field_untouched(session, court) -> None:
     repo.upsert_by_uid_court_code(CASE_UID, court, CASE_CODE, FIRST_PARSE)
     session.flush()
 
-    case, changes = repo.upsert_by_uid_court_code(
+    case, changes, _ = repo.upsert_by_uid_court_code(
         CASE_UID, court, CASE_CODE, {"status": "Завершено, 30.07.2026"}
     )
 
@@ -146,10 +146,10 @@ def test_same_uid_and_court_with_other_code_is_another_card(session, court) -> N
     суд тот же, а номер дела новый. Раньше вторая карточка затирала первую.
     """
     repo = CaseRepository(session)
-    first, _ = repo.upsert_by_uid_court_code(CASE_UID, court, CASE_CODE, FIRST_PARSE)
+    first, _, _ = repo.upsert_by_uid_court_code(CASE_UID, court, CASE_CODE, FIRST_PARSE)
     session.flush()
 
-    second, changes = repo.upsert_by_uid_court_code(
+    second, changes, _ = repo.upsert_by_uid_court_code(
         CASE_UID, court, "02-0777/2/2026", FIRST_PARSE
     )
     session.flush()

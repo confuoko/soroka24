@@ -16,9 +16,10 @@ sync_case — синхронизация дела: сходить браузер
 enqueue_case_resync — поставить дело на повторный парсинг, зная только его id в БД
 (sync_case принимает id задачи, а не дела).
 
-Каждый вызов парсинга оставляет след: HTML страницы ложится снапшотом в S3, а в
-Case.diff_history дозаписывается запись о том, что изменилось — в том числе когда
-изменений нет и когда сайт суда не открылся.
+Каждое обнаруженное изменение оставляет след: в той же транзакции, что и обновление
+карточки, в outbox_event ложится строка на каждое атомарное изменение (см.
+app/monitoring/outbox.py). Неудачные обходы событий не порождают — они остаются в
+SearchTask (status/last_error/page_status) и логах.
 """
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -47,23 +48,15 @@ from app.courts import (
 from app.courts.base import find_uid
 from app.models.database import Case, session_scope
 from app.monitoring.case_update import CaseChanges, update_case
-from app.monitoring.parse_history import (
-    STATUS_CHANGED,
-    STATUS_FETCH_ERROR,
-    STATUS_NO_CHANGES,
-    STATUS_PARSE_ERROR,
-    append_parse_entry,
-    build_entry,
-    changes_to_dict,
-    last_entry,
-)
+from app.monitoring.outbox import changes_to_events
 from app.repositories import (
     CaptchaSolveRepository,
     CaseRepository,
     CourtRepository,
+    OutboxEventRepository,
     SearchTaskRepository,
 )
-from app.storage import is_failure_key, save_snapshot, snapshot_sha256, url_label
+from app.storage import save_snapshot
 from app.validators import is_synthetic_uid, synthetic_uid
 from app.storage.html_snapshots import card_folder
 
@@ -133,52 +126,22 @@ def _take_snapshot(
     fetched_at: datetime,
     court: CourtRef,
     code: str,
-) -> tuple[dict | None, bool]:
-    """Положить HTML карточки в S3. Возвращает (данные снапшота, html_unchanged).
+) -> None:
+    """Положить HTML карточки в S3, если архив разметки включён.
 
-    Если разметка побайтово совпала с прошлым разом (тот же sha256), новый объект не
-    заливаем — переиспользуем ключ предыдущей записи истории. Это частый случай: дело
-    проверяется регулярно, а меняется редко.
+    Архив нужен для отладки парсеров (посмотреть, что именно отдал портал), поэтому по
+    умолчанию выключен — см. HTML_SNAPSHOT_ENABLED. Суд и номер дела нужны, чтобы
+    страница легла в папку своей карточки: карточка — это тройка «УИД + суд + номер».
 
-    Суд и номер дела обязательны: карточка — это тройка «УИД + суд + номер», и без них
-    нельзя ни найти прошлый снапшот, ни положить новый в папку своей карточки.
-
-    Недоступный S3 не должен ронять парсинг: дело важнее архива разметки, поэтому
-    ошибку заливки только логируем, а разбор продолжается со snapshot=None.
+    Недоступный S3 не должен ронять парсинг: дело важнее архива разметки, поэтому ошибку
+    заливки только логируем.
     """
     if not HTML_SNAPSHOT_ENABLED:
-        return None, False
-
-    sha = snapshot_sha256(html)
-
-    # Короткое чтение: чем закончился предыдущий парсинг ЭТОЙ карточки.
-    with session_scope() as session:
-        case = CaseRepository(session).get_by_uid_court_code(uid, court.id, code)
-        previous = last_entry(case) if case is not None else None
-
-    # Ключ переиспользуем только от УСПЕШНОГО парсинга: в последней записи истории теперь
-    # может лежать ключ страницы отказа (капча/блокировка), и подставлять его карточке
-    # нельзя — история дела стала бы ссылаться на мусор.
-    previous_key = previous.get("html_key") if previous is not None else None
-    if previous_key and not is_failure_key(previous_key) and previous.get("html_sha256") == sha:
-        return (
-            {
-                "html_bucket": previous.get("html_bucket"),
-                "html_key": previous["html_key"],
-                "html_sha256": sha,
-                "html_size": previous.get("html_size"),
-            },
-            True,
-        )
-
+        return
     try:
-        return (
-            save_snapshot(uid, html, fetched_at, card=card_folder(court.code, code)),
-            False,
-        )
+        save_snapshot(uid, html, fetched_at, card=card_folder(court.code, code))
     except Exception as exc:
         logger.warning("Не удалось сохранить снапшот HTML дела %s в S3: %s", uid, exc)
-        return None, False
 
 
 def _find_single_card(session, uid: str, court: CourtRef | None, code: str | None):
@@ -208,70 +171,15 @@ def _find_single_card(session, uid: str, court: CourtRef | None, code: str | Non
     return found[0] if found else None
 
 
-def _record_parse_entry(
-    uid: str,
-    status: str,
-    fetched_at: datetime,
-    task_id: int,
-    snapshot: dict | None = None,
-    error: str | None = None,
-    html_unchanged: bool = False,
-    court: CourtRef | None = None,
-    code: str | None = None,
-) -> None:
-    """Дозаписать в историю дела запись о неудачном парсинге (если дело уже есть в БД).
+def _page_status(exc: BaseException) -> int | None:
+    """HTTP-статус страницы, на которой упали (или None, если снимка страницы нет).
 
-    Если дела в БД ещё нет (первый парсинг провалился) или карточка не определяется
-    однозначно, дозаписывать некуда — такой провал остаётся в SearchTask
-    (last_error/status).
-    """
-    if court is None:
-        # Суд не определён: до таблицы результатов (или до хоста) дело не дошло.
-        logger.info("Суд дела %s не определён — запись истории парсинга пропущена", uid)
-        return
-
-    with session_scope() as session:
-        case = _find_single_card(session, uid, court, code)
-        if case is None:
-            logger.info("Дело %s ещё не создано — запись истории парсинга пропущена", uid)
-            return
-        append_parse_entry(
-            case,
-            build_entry(
-                status=status,
-                fetched_at=fetched_at,
-                task_id=task_id,
-                snapshot=snapshot,
-                error=error,
-                html_unchanged=html_unchanged,
-            ),
-        )
-
-
-def _save_failure_page(
-    uid: str, exc: BaseException, fetched_at: datetime
-) -> tuple[dict | None, int | None]:
-    """Положить в S3 страницу, на которой упали. Возвращает (данные снапшота, HTTP-статус).
-
-    Снимок приходит приложенным к исключению клиента суда (CourtError.page): живой браузер
-    есть только внутри клиента, здесь его уже нет. Если снимка нет (упало до открытия
-    страницы или снять не удалось) — сохранять нечего.
-
-    Ошибку S3 глотаем: архив разметки не важнее самой причины отказа, ради записи которой
-    мы сюда и пришли.
+    Снимок приходит приложенным к исключению клиента суда (CourtError.page): живой
+    браузер есть только внутри клиента, здесь его уже нет. Статус уходит в
+    SearchTask.page_status — по нему потом видно, отказал портал (403) или упало раньше.
     """
     page = getattr(exc, "page", None)
-    if page is None:
-        return None, None
-    if not HTML_SNAPSHOT_ENABLED:
-        return None, page.status
-    try:
-        return save_snapshot(uid, page.html, fetched_at, failed=True), page.status
-    except Exception as storage_exc:
-        logger.warning(
-            "Не удалось сохранить страницу отказа дела %s в S3: %s", uid, storage_exc
-        )
-        return None, page.status
+    return page.status if page is not None else None
 
 
 def _captcha_recorder(task_id: int, celery_retry: int, source_url: str | None = None):
@@ -524,10 +432,6 @@ def _sync_case(celery_task, task_id: int) -> None:
         uid = task.uid
         source_url = task.source_url
 
-    # Под каким именем класть страницы в S3. Пока дело пришло ссылкой и УИД неизвестен,
-    # имени из УИД нет — берём его из адреса, иначе страницу отказа некуда положить.
-    label = uid or url_label(source_url)
-
     # Куда клиент суда будет сообщать о расходах на капчу. Номер ретрая берём заранее:
     # в отчёте по нему видно, что до дела пришлось идти несколько раз.
     on_captcha = _captcha_recorder(
@@ -568,7 +472,6 @@ def _sync_case(celery_task, task_id: int) -> None:
             # _resolve_card_uid.
             code = client.extract_case_code(html)
             uid = _resolve_card_uid(html, source_url, url_court)
-            label = uid
             # Первые 8 символов УИД — код суда. Сверяем с тем, который определили по
             # ссылке: расхождение означает, что ссылка ведёт не туда, куда мы решили,
             # либо на портале поехала нумерация участков. Не роняем — дело сохранить
@@ -596,23 +499,14 @@ def _sync_case(celery_task, task_id: int) -> None:
         fetched_at = datetime.utcnow()
     except (UnsupportedCourt, CaseNotFound) as exc:
         # Окончательные ошибки — повторять бессмысленно.
-        snapshot, page_status = _save_failure_page(label, exc, fetched_at)
-        _record_parse_entry(
-            label, STATUS_FETCH_ERROR, fetched_at, task_id, snapshot=snapshot,
-            error=str(exc), court=url_court,
-        )
+        page_status = _page_status(exc)
         # Капчи по дороге были оплачены, даже если карточку мы так и не получили.
         _attach_captcha_costs(task_id, uid, url_court)
         _mark_failed(task_id, str(exc), page_status=page_status)
         return
     except Exception as exc:
         # Временная ошибка (403/timeout/сеть): записать и повторить, пока есть попытки.
-        # Запись в историю делаем на каждой попытке — так видно, сколько раз суд не открылся.
-        snapshot, page_status = _save_failure_page(label, exc, fetched_at)
-        _record_parse_entry(
-            label, STATUS_FETCH_ERROR, fetched_at, task_id, snapshot=snapshot,
-            error=str(exc), court=url_court,
-        )
+        page_status = _page_status(exc)
         _attach_captcha_costs(task_id, uid, url_court)
         # Счётчик попыток проверяем САМИ, до вызова retry: если в retry(exc=...) передан exc,
         # то при исчерпании попыток Celery пробрасывает именно его, а не MaxRetriesExceededError
@@ -645,38 +539,26 @@ def _sync_case(celery_task, task_id: int) -> None:
             )
             continue
 
-        # 3b. Снапшот HTML — до разбора, чтобы разметка сохранилась даже если парсер упадёт.
-        snapshot, html_unchanged = _take_snapshot(
-            uid, card.html, fetched_at, court, card.code
-        )
+        # 3b. Архив разметки — до разбора, чтобы страница сохранилась даже если парсер
+        #     упадёт. По умолчанию выключен (см. HTML_SNAPSHOT_ENABLED).
+        _take_snapshot(uid, card.html, fetched_at, court, card.code)
 
         # 3c. Разбор карточки. Ошибка разбора не временная (сломалась разметка или тип
         #     страницы неизвестен) — ретраить нечего.
         try:
             data = client.parse(card.html)  # состав словаря — в CaseParser.parse
         except Exception as exc:
-            _record_parse_entry(
-                uid, STATUS_PARSE_ERROR, fetched_at, task_id,
-                snapshot=snapshot, error=str(exc), html_unchanged=html_unchanged,
-                court=court, code=card.code,
-            )
             failures.append(f"{card.code}: не удалось разобрать страницу: {exc}")
             continue
 
         # Пустой разбор считаем ошибкой разметки и НЕ сохраняем: иначе обход затрёт
-        # события, судей и стороны уже сохранённой карточки. Разметку потом смотрят по
-        # снапшоту — он лёг в S3 выше, до разбора.
+        # события, судей и стороны уже сохранённой карточки.
         if _parse_is_empty(data):
             error = (
                 "разбор не дал ни одного поля — похоже, у портала другая разметка "
                 f"(тип страницы {client.page_type})"
             )
             logger.warning("Дело %s, карточка %s: %s", uid, card.code, error)
-            _record_parse_entry(
-                uid, STATUS_PARSE_ERROR, fetched_at, task_id,
-                snapshot=snapshot, error=error, html_unchanged=html_unchanged,
-                court=court, code=card.code,
-            )
             failures.append(f"{card.code}: {error}")
             continue
 
@@ -695,24 +577,17 @@ def _sync_case(celery_task, task_id: int) -> None:
 
             # Отмечаем и факт похода, и факт изменения — это разные даты, и обе нужны:
             # по last_checked_at планировщик набирает дела, last_changed_at видит
-            # пользователь. updated_at ни на то, ни на другое не годится: ниже
-            # дозаписывается diff_history, и строка обновляется на каждом обходе.
+            # пользователь. updated_at ни на то, ни на другое не годится: строку трогает
+            # любой обход, в том числе холостой.
             CaseRepository(session).mark_checked(
                 changes.case, fetched_at, changed=changes.has_changes()
             )
 
-            # Историю пишем здесь же, до коммита: у удалённых событий и местонахождений
-            # атрибуты в этот момент ещё загружены в сессии.
-            append_parse_entry(
-                changes.case,
-                build_entry(
-                    status=STATUS_CHANGED if changes.has_changes() else STATUS_NO_CHANGES,
-                    fetched_at=fetched_at,
-                    task_id=task_id,
-                    snapshot=snapshot,
-                    diff=changes_to_dict(changes),
-                    html_unchanged=html_unchanged,
-                ),
+            # События мониторинга — здесь же, в ЭТОЙ транзакции: в том и смысл outbox,
+            # что изменение карточки и факт события коммитятся атомарно. Заодно у
+            # удалённых событий и местонахождений атрибуты сейчас ещё загружены в сессии.
+            OutboxEventRepository(session).emit(
+                changes.case, changes_to_events(changes)
             )
 
     if not saved_ids:

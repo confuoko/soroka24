@@ -19,7 +19,7 @@ from bs4 import BeautifulSoup
 from app.courts.moscow_mir_court import DETAIL_LINK, participok_from_href
 from app.models.database import Court, CourtLevel
 from app.repositories.courts import CourtRepository, host_of, participok_no
-from app.storage.html_snapshots import card_folder, is_failure_key, snapshot_key
+from app.storage.html_snapshots import card_folder, snapshot_key
 
 HTML_EXAMPLES = Path(__file__).resolve().parents[1] / "html_examples"
 
@@ -291,14 +291,6 @@ def test_snapshot_key_separates_cards_of_one_uid() -> None:
 
     assert first != second
     assert first.startswith(f"html_snapshots/{uid}/77MS0002-05-0444-2-2026/")
-    assert not is_failure_key(first)
-
-
-def test_failure_page_keeps_the_old_layout() -> None:
-    """Страница отказа ложится в failed/ без уровня карточки: её в тот момент не знают."""
-    key = snapshot_key("77MS0002-01-2026-000004-44", datetime(2026, 8, 4, 15, 0, 0), failed=True)
-
-    assert is_failure_key(key)
 
 
 # ------------------------------------------------------------- сборка справочника

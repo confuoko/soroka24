@@ -36,6 +36,9 @@ class CaseChanges:
     """Что изменилось по делу за одну синхронизацию."""
 
     case: Case                    # созданное/обновлённое дело (аггрегат)
+    # Карточка заведена этим же обходом. Тогда всё её содержимое формально «новое», и
+    # событий мониторинга по нему не рассылается — это baseline, а не изменения.
+    is_new: bool
     # Изменившиеся скалярные поля дела (статус, решение, даты…). У нового дела пуст.
     field_changes: list[CaseFieldChange]
     new_events: list[Event]       # новые строки «Истории состояний»
@@ -108,7 +111,7 @@ def update_case(
     """
     # 1. Карточка: найти по тройке «УИД + суд + номер» или создать, обновить поля.
     cases = CaseRepository(session)
-    case, field_changes = cases.upsert_by_uid_court_code(uid, court, code, data)
+    case, field_changes, is_new = cases.upsert_by_uid_court_code(uid, court, code, data)
     # Адрес карточки — в список адресов, а не в поле дела: их у карточки несколько.
     # Сюда он приходит либо от парсера, либо от задачи, которую завели ссылкой.
     # Раз мы дошли до разбора, значит по этому адресу страница открылась — отмечаем.
@@ -152,6 +155,7 @@ def update_case(
 
     return CaseChanges(
         case=case,
+        is_new=is_new,
         field_changes=field_changes,
         new_events=new_events,
         updated_events=updated_events,

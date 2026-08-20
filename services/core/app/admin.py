@@ -25,6 +25,7 @@ from app.models.database import (
     Event,
     Instance,
     Judge,
+    OutboxEvent,
     PlaceHistory,
     Proxy,
     SearchTask,
@@ -95,8 +96,6 @@ class CaseAdmin(ModelView, model=Case):
     # УИД строк может быть несколько (разные суды и разные производства).
     column_list = [Case.id, Case.uid, Case.court, Case.code, Case.application_number, Case.status, Case.created_at]
     column_searchable_list = [Case.uid, Case.code]
-    # Историю парсингов (diff_history) SQLAdmin покажет в карточке дела сам —
-    # column_details_list по умолчанию включает все колонки модели.
 
     @action(
         name="resync_cases",
@@ -108,7 +107,7 @@ class CaseAdmin(ModelView, model=Case):
     async def resync_cases(self, request: Request) -> RedirectResponse:
         """Поставить каждое выбранное дело на повторный парсинг.
 
-        Нужна, чтобы наполнять историю diff'ов: обычный POST /search_case для уже
+        Нужна, чтобы проверить дело вне расписания: обычный POST /search_case для уже
         известного дела возвращает его id и парсинг не запускает.
         """
         pks = [pk for pk in request.query_params.get("pks", "").split(",") if pk]
@@ -170,6 +169,23 @@ class JudgeAdmin(ModelView, model=Judge):
     name = "Судья"
     name_plural = "Судьи"
     column_list = [Judge.id, Judge.full_name]
+
+
+class OutboxEventAdmin(ModelView, model=OutboxEvent):
+    """Изменения по делам (поток событий мониторинга).
+
+    Только для чтения глазами: таблица append-only, её наполняет обход дела.
+    """
+
+    name = "Изменение по делу"
+    name_plural = "Изменения по делам"
+    column_list = [
+        OutboxEvent.id,
+        OutboxEvent.case_id,
+        OutboxEvent.event_type,
+        OutboxEvent.created_at,
+    ]
+    column_searchable_list = [OutboxEvent.case_id]
 
 
 class SideAdmin(ModelView, model=Side):
@@ -339,6 +355,7 @@ def setup_admin(app) -> Admin:
         InstanceAdmin,
         DocumentAdmin,
         CourtSessionAdmin,
+        OutboxEventAdmin,
         CaseUrlAdmin,
         CaseLinkAdmin,
         SearchTaskAdmin,

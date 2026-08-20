@@ -37,17 +37,3 @@ def get_client():
 def put_object(key: str, body: bytes, content_type: str = "application/gzip") -> None:
     """Положить объект в бакет по ключу (перезаписывает существующий)."""
     get_client().put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType=content_type)
-
-
-def get_object(key: str) -> bytes:
-    """Прочитать объект из бакета по ключу."""
-    return get_client().get_object(Bucket=S3_BUCKET, Key=key)["Body"].read()
-
-
-def list_keys(prefix: str) -> list[str]:
-    """Ключи объектов с данным префиксом (для отладки и проверки залитого)."""
-    paginator = get_client().get_paginator("list_objects_v2")
-    keys: list[str] = []
-    for page in paginator.paginate(Bucket=S3_BUCKET, Prefix=prefix):
-        keys.extend(obj["Key"] for obj in page.get("Contents", []))
-    return keys

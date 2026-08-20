@@ -226,7 +226,7 @@ class CaseSummaryResponse(_FromORM):
     last_checked_at: Optional[datetime] = None
     # Дата последнего ИЗМЕНЕНИЯ на портале. Это и есть «дата обновления дела» для
     # пользователя; updated_at ниже — служебное поле строки в БД, оно двигается на
-    # каждом обходе (дозаписывается diff_history).
+    # каждом обходе, в том числе холостом (отметка last_checked_at).
     last_changed_at: Optional[datetime] = None
     updated_at: datetime
     monitoring_enabled: bool = False

@@ -27,7 +27,7 @@ ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY", "dev-admin-secret-change-me")
 # JSON-справочник судов: его заливает в БД команда админки и scripts/sync_courts.py.
 COURTS_JSON_PATH = Path(os.getenv("COURTS_JSON_PATH", CORE_ROOT / "data" / "courts.json"))
 
-# --- S3 (снапшоты HTML страниц суда) -----------------------------------------
+# --- S3 (картинки капчи и отладочный архив HTML) ------------------------------
 
 # Адрес S3-совместимого хранилища. Локально — MinIO из docker-compose; в проде
 # сюда подставляется облачный endpoint (например, https://storage.yandexcloud.net).
@@ -38,13 +38,15 @@ S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "soroka_secret")
 # Регион нужен boto3 формально; MinIO его игнорирует.
 S3_REGION = os.getenv("S3_REGION", "us-east-1")
 
-# --- Снапшоты HTML страниц суда ----------------------------------------------
+# --- Архив HTML страниц суда --------------------------------------------------
 
-# Префикс ключей в бакете: html_snapshots/<уид>/<уид>_<время>.html.gz
+# Префикс ключей в бакете: html_snapshots/<уид>/<код суда>-<номер дела>/<уид>_<время>.html.gz
 HTML_SNAPSHOT_PREFIX = os.getenv("HTML_SNAPSHOT_PREFIX", "html_snapshots")
 
-# Выключатель на случай, если снапшоты не нужны (тесты, отладка).
-HTML_SNAPSHOT_ENABLED = os.getenv("HTML_SNAPSHOT_ENABLED", "1") not in ("0", "false", "False")
+# Архив разметки нужен только для отладки парсеров, поэтому по умолчанию ВЫКЛЮЧЕН: в
+# обычной работе эти объекты никто не читает, а место в бакете занимают. Включают
+# точечно, когда разбирают поехавшую разметку портала.
+HTML_SNAPSHOT_ENABLED = os.getenv("HTML_SNAPSHOT_ENABLED", "0") not in ("0", "false", "False")
 
 # --- Распознавание капчи (rucaptcha.com) --------------------------------------
 
@@ -89,7 +91,3 @@ MONITORING_SPACING_SECONDS = int(os.getenv("MONITORING_SPACING_SECONDS", "60"))
 # Сколько дел брать за один запуск (0 — все). Ограничитель на случай, когда дел
 # на мониторинге стало больше, чем реально успевает обойтись за сутки.
 MONITORING_BATCH_LIMIT = int(os.getenv("MONITORING_BATCH_LIMIT", "0"))
-
-# Сколько последних записей хранить в Case.diff_history: поле JSONB перезаписывается
-# целиком при каждом апдейте, поэтому расти без предела ему нельзя.
-DIFF_HISTORY_LIMIT = int(os.getenv("DIFF_HISTORY_LIMIT", "200"))

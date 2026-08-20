@@ -220,7 +220,7 @@ def test_url_task_discovers_uid_and_saves_link(url_task_id, url_court, monkeypat
         "define_court_by_uid",
         lambda uid, proxy=None, **kw: pytest.fail("по ссылке искать по УИД не должны"),
     )
-    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: (None, False))
+    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: None)
     captured = {}
 
     def _update_case(session, uid, data, court, code):
@@ -285,7 +285,7 @@ def _run_url_task_capturing_uid(task_row_id: int, monkeypatch, client) -> dict:
     monkeypatch.setattr(
         tasks, "define_court_by_url", lambda url, proxy=None, **kw: client
     )
-    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: (None, False))
+    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: None)
     monkeypatch.setattr(tasks, "update_case", _update_case)
 
     with pytest.raises(_StopBeforeWrite):
@@ -399,7 +399,7 @@ def test_empty_parse_is_a_failure_and_does_not_touch_the_card(
     monkeypatch.setattr(
         tasks, "define_court_by_url", lambda url, proxy=None, **kw: _Client()
     )
-    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: (None, False))
+    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: None)
     monkeypatch.setattr(
         tasks,
         "update_case",
@@ -479,7 +479,7 @@ def test_all_rows_of_the_results_table_become_cards(task_id, monkeypatch) -> Non
     monkeypatch.setattr(
         tasks, "_court_by_participok", lambda region_code, number: courts[number]
     )
-    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: (None, False))
+    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: None)
     monkeypatch.setattr(tasks, "_attach_captcha_costs_to_case", lambda *a, **kw: None)
     # Карточки поддельные, в БД их нет — настоящий mark_success упал бы на внешнем ключе.
     succeeded = []
@@ -495,6 +495,7 @@ def test_all_rows_of_the_results_table_become_cards(task_id, monkeypatch) -> Non
         return SimpleNamespace(
             case=SimpleNamespace(id=next(ids)),
             has_changes=lambda: False,
+            is_new=False,
             field_changes=[], new_events=[], updated_events=[], removed_events=[],
             new_places=[], updated_places=[], removed_places=[],
             new_sessions=[], updated_sessions=[], removed_sessions=[],
@@ -503,8 +504,12 @@ def test_all_rows_of_the_results_table_become_cards(task_id, monkeypatch) -> Non
         )
 
     monkeypatch.setattr(tasks, "update_case", _update_case)
-    monkeypatch.setattr(tasks, "append_parse_entry", lambda case, entry: None)
-    monkeypatch.setattr(tasks, "changes_to_dict", lambda changes: {})
+    # Карточки поддельные (в БД их нет), поэтому запись событий в outbox заглушаем.
+    monkeypatch.setattr(
+        tasks,
+        "OutboxEventRepository",
+        lambda session: SimpleNamespace(emit=lambda case, events: []),
+    )
     monkeypatch.setattr(
         tasks,
         "CourtRepository",
@@ -552,7 +557,7 @@ def test_broken_row_does_not_lose_the_others(task_id, monkeypatch) -> None:
     monkeypatch.setattr(
         tasks, "_court_by_participok", lambda region_code, number: tasks.CourtRef(id=1, code="77MS0002")
     )
-    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: (None, False))
+    monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: None)
     monkeypatch.setattr(tasks, "_record_parse_entry", lambda *a, **kw: None)
     monkeypatch.setattr(tasks, "_attach_captcha_costs_to_case", lambda *a, **kw: None)
     succeeded = []
@@ -567,6 +572,7 @@ def test_broken_row_does_not_lose_the_others(task_id, monkeypatch) -> None:
         return SimpleNamespace(
             case=SimpleNamespace(id=201),
             has_changes=lambda: False,
+            is_new=False,
             field_changes=[], new_events=[], updated_events=[], removed_events=[],
             new_places=[], updated_places=[], removed_places=[],
             new_sessions=[], updated_sessions=[], removed_sessions=[],
@@ -575,8 +581,12 @@ def test_broken_row_does_not_lose_the_others(task_id, monkeypatch) -> None:
         )
 
     monkeypatch.setattr(tasks, "update_case", _update_case)
-    monkeypatch.setattr(tasks, "append_parse_entry", lambda case, entry: None)
-    monkeypatch.setattr(tasks, "changes_to_dict", lambda changes: {})
+    # Карточки поддельные (в БД их нет), поэтому запись событий в outbox заглушаем.
+    monkeypatch.setattr(
+        tasks,
+        "OutboxEventRepository",
+        lambda session: SimpleNamespace(emit=lambda case, events: []),
+    )
     monkeypatch.setattr(
         tasks,
         "CourtRepository",
