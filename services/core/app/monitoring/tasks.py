@@ -22,7 +22,7 @@ app/monitoring/outbox.py). Неудачные обходы событий не �
 SearchTask (status/last_error/page_status) и логах.
 """
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
 from celery.exceptions import Retry
@@ -44,6 +44,7 @@ from app.courts import (
     UnsupportedCourt,
     define_court_by_uid,
     define_court_by_url,
+    portal_for,
 )
 from app.courts.base import find_uid
 from app.models.database import Case, session_scope
@@ -450,12 +451,16 @@ def _sync_case(celery_task, task_id: int) -> None:
         return
 
     # 2. Долгая часть без БД: сходить браузером в суд за карточками дела.
-    fetched_at = datetime.utcnow()
+    fetched_at = datetime.now(timezone.utc)
     try:
-        # Прокси арендуем внутри try: если пул пуст при COURT_PROXY_REQUIRED=1,
+        # Прокси арендуем внутри try: если подходящего нет при COURT_PROXY_REQUIRED=1,
         # ProxyUnavailable уйдёт в ветку временных ошибок ниже — задача поретраится,
         # а браузер даже не запустится (на портал не с того IP ходить нельзя).
-        proxy = lease_proxy()
+        #
+        # Портал вычисляем ДО аренды: до разных порталов доходят разные адреса, и пул
+        # должен выдать годный (см. Proxy.portals). Клиента суда на этот момент ещё нет —
+        # именно поэтому portal_for() ищет класс, а не создаёт экземпляр.
+        proxy = lease_proxy(portal=portal_for(uid=uid, url=source_url))
         if source_url:
             # Портал без поиска по УИД: карточка открывается прямой ссылкой, а УИД
             # мы узнаём уже из неё. Ссылка — постоянный адрес дела, поэтому и первый
@@ -496,7 +501,7 @@ def _sync_case(celery_task, task_id: int) -> None:
             # производство, и последовавшее исковое, иногда в разных участках.
             cards = client.fetch_cases_by_uid(uid)
             logger.info("По УИД %s найдено карточек: %d", uid, len(cards))
-        fetched_at = datetime.utcnow()
+        fetched_at = datetime.now(timezone.utc)
     except (UnsupportedCourt, CaseNotFound) as exc:
         # Окончательные ошибки — повторять бессмысленно.
         page_status = _page_status(exc)
@@ -631,7 +636,7 @@ def sync_monitored_cases(
 
     # interval_hours=0 — «взять все, независимо от даты последней проверки»
     # (нужно для ручного прогона и отладки).
-    older_than = datetime.utcnow() - timedelta(hours=hours) if hours > 0 else None
+    older_than = datetime.now(timezone.utc) - timedelta(hours=hours) if hours > 0 else None
 
     with session_scope() as session:
         case_ids = CaseRepository(session).list_monitored_ids(older_than, limit=batch)

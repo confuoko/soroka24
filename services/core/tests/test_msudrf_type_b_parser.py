@@ -28,7 +28,7 @@
   * case_2dzr_76MS0024-01-2026-000215-08.html — Ярославская область: портал поставил на
     карточку УИД ДРУГОГО участка (дело передавалось)
 """
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -110,7 +110,7 @@ def test_event_joins_name_and_result() -> None:
     events = _parse("mo_case_5_415323702.html")["events"]
 
     assert events[0] == {
-        "event_date": date(2026, 2, 13),
+        "event_date": datetime(2026, 2, 13, 0, 0),
         "state_description": (
             "Регистрация судебного приказа"
             " - Принято решение: Определение об отмене судебного приказа"
@@ -171,7 +171,7 @@ def test_published_at_parsed() -> None:
     """«Дата размещения» — отдельное поле: портал публикует событие позже, чем оно было."""
     events = _parse("mo_case_5_415323702.html")["events"]
 
-    assert events[1]["event_date"] == date(2026, 3, 5)
+    assert events[1]["event_date"] == datetime(2026, 3, 5, 0, 0)
     assert events[1]["published_at"] == date(2026, 3, 17)
 
 
@@ -268,7 +268,7 @@ def test_archive_card_without_uid_parses_fully() -> None:
         "Судебное заседание",
         "Решение по существу",
     ]
-    assert card["events"][0]["event_date"] == date(2011, 4, 29)
+    assert card["events"][0]["event_date"] == datetime(2011, 4, 29, 0, 0)
 
 
 # ------------------------------------------------- вёрстки одного и того же типа B
@@ -287,11 +287,13 @@ def test_swapped_movement_columns_are_read_by_heading() -> None:
     # Три строки движения, но у первой нет даты события — в события она не попадает.
     assert [(e["event_date"], e["state_description"]) for e in card["events"]] == [
         (
-            date(2026, 7, 16),
+            datetime(2026, 7, 16, 0, 0),
             "Подготовка к судебному разбирательству - Принято решение: Определение о "
             "назначении дела к разбирательству в судебном заседании",
         ),
-        (date(2026, 8, 18), "Судебное заседание"),
+        # Время события прочитано из своей колонки: у заседания оно есть, у первой
+        # строки колонка пуста — там местная полночь.
+        (datetime(2026, 8, 18, 10, 0), "Судебное заседание"),
     ]
     # «Дата размещения» — последняя колонка, и она тоже найдена по шапке, а не по номеру.
     assert card["events"][0]["published_at"] == date(2026, 7, 20)

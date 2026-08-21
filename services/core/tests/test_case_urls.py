@@ -7,7 +7,7 @@
 
 А на одну карточку, наоборот, ведёт много внешне разных адресов.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -32,6 +32,7 @@ def other_court(session) -> Court:
         name="Тестовый районный суд",
         level=CourtLevel.GENERAL,
         region="Московская область",
+        timezone="Europe/Moscow",
     )
     session.add(row)
     session.flush()
@@ -158,7 +159,7 @@ def test_primary_url_prefers_the_one_that_worked(session, court) -> None:
     case = _case(session, court)
     old = repo.add_url(case, CASE_URL)
     fresh = repo.add_url(case, "https://96.mo.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=7&delo_id=8")
-    fresh.last_success_at = datetime.utcnow()
+    fresh.last_success_at = datetime.now(timezone.utc)
     session.flush()
 
     assert repo.primary_url(case) == fresh.url
@@ -174,7 +175,7 @@ def test_primary_url_falls_back_to_the_freshest(session, court) -> None:
     repo = CaseRepository(session)
     case = _case(session, court)
     old = repo.add_url(case, CASE_URL)
-    old.created_at = datetime.utcnow() - timedelta(days=1)
+    old.created_at = datetime.now(timezone.utc) - timedelta(days=1)
     fresh = repo.add_url(
         case, "https://96.mo.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=7&delo_id=8"
     )

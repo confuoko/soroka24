@@ -6,7 +6,6 @@ from app.browser.chromium import ChromiumSession
 from app.browser.proxy import (
     ProxySettings,
     ProxyUnavailable,
-    lease_pinned_proxy,
     lease_proxy,
     parse_proxy_url,
 )
@@ -17,7 +16,6 @@ __all__ = [
     "ProxyRelay",
     "ProxySettings",
     "ProxyUnavailable",
-    "lease_pinned_proxy",
     "lease_proxy",
     "parse_proxy_url",
 ]

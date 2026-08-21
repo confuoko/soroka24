@@ -8,6 +8,7 @@
 from datetime import datetime
 
 from app.models.database import Case
+from app.timezones import to_court_local
 from app.repositories.court_sessions import CourtSessionRepository, court_session_uid
 
 CASE_UID = "77MS0002-01-2026-000005-55"
@@ -54,7 +55,11 @@ def test_sessions_created_from_page(session, court) -> None:
     assert len(case.court_sessions) == 2
 
     by_stage = {s.stage: s for s in case.court_sessions}
-    assert by_stage["Беседа"].session_date == datetime(2026, 7, 30, 16, 50)
+    # В БД лежит момент в UTC, а сверяем с тем, что написано на странице суда: парсер
+    # отдал 16:50 московских, значит обратный перевод по поясу суда должен дать их же.
+    assert to_court_local(
+        by_stage["Беседа"].session_date, court.timezone
+    ).replace(tzinfo=None) == datetime(2026, 7, 30, 16, 50)
     assert by_stage["Беседа"].result == "Проведена"
     # У будущего заседания результата ещё нет.
     assert by_stage["Судебное заседание"].result is None

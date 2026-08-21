@@ -122,10 +122,6 @@ def portal(monkeypatch):
 
         monkeypatch.setattr(msudrf_court, "ChromiumSession", _session_factory)
         monkeypatch.setattr(msudrf_court, "solve_image", _solve)
-        # В БД за прокси не ходим: по умолчанию закреплённого «нет», как при пустом
-        # пуле. Тесты, которым важен именно выбор прокси, подменяют это сами.
-        monkeypatch.setattr(msudrf_court, "lease_pinned_proxy", lambda proxy_id: None)
-        monkeypatch.setattr(msudrf_court, "lease_proxy", lambda: None)
         # В S3 не ходим, но проверяем, что картинку туда отдавали.
         monkeypatch.setattr(
             msudrf_court,
@@ -143,70 +139,20 @@ def _fetch(client=None) -> tuple[str, MsudrfCourtClient]:
 
 
 # ------------------------------------------------------------ выбор прокси
-# До msudrf.ru из пула доходит ровно один адрес, поэтому клиент берёт закреплённый
-# (DEFAULT_PROXY_ID), а не тот, что выдал LRU. Это временно, до site-aware пула.
-PINNED = ProxySettings(scheme="http", host="10.0.0.22", port=7584)
+# Клиент msudrf прокси сам не арендует: берёт тот, что дал вызывающий (обычно —
+# арендованный пулом в app/monitoring/tasks.py, иногда — переданный руками через
+# --proxy у скриптов). Раньше здесь был закреплённый DEFAULT_PROXY_ID: до msudrf.ru
+# доходил ровно один адрес пула. Единственный адрес пула теперь доходит, и костыль снят.
 FROM_POOL = ProxySettings(scheme="http", host="10.0.0.99", port=8000)
-BY_HAND = ProxySettings(scheme="http", host="10.0.0.7", port=3128, explicit=True)
 
 
-def test_pinned_proxy_replaces_the_one_from_the_pool(portal, monkeypatch) -> None:
-    """Пул выдал случайный адрес — идём всё равно через закреплённый.
-
-    Иначе три захода из четырёх сгорали бы на туннеле: пул выбирает по LRU и про то,
-    какой адрес доходит до msudrf.ru, не знает.
-    """
+def test_client_goes_through_the_proxy_it_was_given(portal) -> None:
+    """Прокси не подменяется по дороге: в браузер уходит ровно переданный адрес."""
     session, _ = portal([CARD_HTML])
-    monkeypatch.setattr(msudrf_court, "lease_pinned_proxy", lambda proxy_id: PINNED)
-    asked = []
-    monkeypatch.setattr(
-        msudrf_court, "lease_proxy", lambda: asked.append("pool") or FROM_POOL
-    )
-
-    _fetch(MsudrfCourtClient(proxy=FROM_POOL))
-
-    assert session.proxy == PINNED
-    assert asked == []  # обычную аренду даже не дёргаем
-
-
-def test_hand_picked_proxy_wins_over_the_pinned_one(portal, monkeypatch) -> None:
-    """Явный --proxy не перебиваем: иначе флаг молча перестал бы работать."""
-    session, _ = portal([CARD_HTML])
-    monkeypatch.setattr(msudrf_court, "lease_pinned_proxy", lambda proxy_id: PINNED)
-
-    _fetch(MsudrfCourtClient(proxy=BY_HAND))
-
-    assert session.proxy == BY_HAND
-
-
-def test_falls_back_when_the_pinned_proxy_is_off(portal, monkeypatch) -> None:
-    """Закреплённый выключили в админке → идём тем, что дал вызывающий.
-
-    Лучше попытка через неподходящий адрес, чем гарантированный отказ: вдруг
-    провайдер как раз перестал резать msudrf.ru.
-    """
-    session, _ = portal([CARD_HTML])
-    monkeypatch.setattr(msudrf_court, "lease_pinned_proxy", lambda proxy_id: None)
 
     _fetch(MsudrfCourtClient(proxy=FROM_POOL))
 
     assert session.proxy == FROM_POOL
-
-
-def test_pinned_proxy_is_taken_by_configured_id(portal, monkeypatch) -> None:
-    """Спрашиваем ровно тот id, что записан в DEFAULT_PROXY_ID."""
-    portal([CARD_HTML])
-    asked: list[int] = []
-
-    def _pinned(proxy_id):
-        asked.append(proxy_id)
-        return PINNED
-
-    monkeypatch.setattr(msudrf_court, "lease_pinned_proxy", _pinned)
-
-    _fetch(MsudrfCourtClient(proxy=FROM_POOL))
-
-    assert asked == [msudrf_court.DEFAULT_PROXY_ID]
 
 
 # ------------------------------------------------------------------ капчи не было

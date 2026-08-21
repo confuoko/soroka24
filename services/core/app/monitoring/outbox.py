@@ -25,7 +25,11 @@ from app.repositories import CaseFieldChange
 
 
 def _iso(value: Optional[date]) -> Optional[str]:
-    """Дата в ISO-строку (None остаётся None) — JSON не умеет date."""
+    """Дату или момент в ISO-строку (None остаётся None) — JSON не умеет ни то, ни другое.
+
+    Годится для обоих: datetime — подкласс date, и у момента isoformat() отдаёт время со
+    смещением, а у календарной даты — просто «2026-08-19».
+    """
     return value.isoformat() if value is not None else None
 
 
@@ -53,14 +57,13 @@ def _place_to_dict(place: PlaceHistory) -> dict:
 def _session_to_dict(session: CourtSession) -> dict:
     """Судебное заседание — в компактный вид.
 
-    session_date отдаём с временем: оно входит в identity заседания и пользователю важно
-    не меньше даты («заседание 14.08 в 10:00»).
+    session_date — момент со смещением: время входит в identity заседания и пользователю
+    важно не меньше даты («заседание 14.08 в 10:00»). Смещение обязательно, иначе клиент
+    не отличит московское заседание от владивостокского.
     """
     return {
         "uid": str(session.uid),
-        "session_date": session.session_date.isoformat()
-        if session.session_date is not None
-        else None,
+        "session_date": _iso(session.session_date),
         "place": session.place,
         "stage": session.stage,
         "result": session.result,

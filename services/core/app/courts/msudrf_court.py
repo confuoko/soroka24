@@ -36,9 +36,9 @@ https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=429386415&delo_i
 import dataclasses
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
-from app.browser import ChromiumSession, ProxySettings, lease_pinned_proxy, lease_proxy
+from app.browser import ChromiumSession, ProxySettings
 from app.captcha import AttemptSink, solve_image
 from app.config import CAPTCHA_ATTEMPTS
 from app.courts.base import (
@@ -534,23 +534,6 @@ CAPTCHA_SUBMIT = "#kcaptchaForm button[type='submit']"
 # страница отсекалась как «не карточка», хотя разбирается она штатно.
 CASE_CODE_RE = re.compile(r"(?:ДЕЛО|МАТЕРИАЛ)\s*№\s*([^<]+)", re.IGNORECASE)
 
-# Прокси, закреплённый за этим движком: id строки в таблице proxy.
-#
-# ВРЕМЕННОЕ РЕШЕНИЕ. До msudrf.ru из пула доходит ровно один адрес, остальные получают
-# от своего провайдера «502 Bad Gateway» на CONNECT ещё до портала. Пул же выбирает по
-# LRU и про сайты не знает, поэтому обычная аренда давала годный прокси примерно в
-# четверти случаев, а остальные заходы сгорали в ретраях (и в капче, если до неё
-# доходило). Пока пул не научили выбирать по адресу назначения, движок берёт свой
-# прокси сам.
-#
-# Указан именно ID, а не строка подключения: логин и пароль остаются в БД и в
-# исходники не попадают. Прокси протух — меняется одно число здесь (или запись в
-# админке), передеплой не нужен.
-#
-# Если строки нет или её выключили в админке, клиент откатывается на обычную аренду:
-# лучше попробовать хоть что-то, чем гарантированно не пойти вовсе.
-DEFAULT_PROXY_ID = 22
-
 
 class MsudrfCourtClient(CourtClient):
     """Клиент порталов на движке msudrf.ru. Страницы считаем типом B.
@@ -562,6 +545,8 @@ class MsudrfCourtClient(CourtClient):
     """
 
     page_type = "B"
+    # Портал у обоих клиентов движка один — наследник его не переопределяет.
+    portal = "msudrf"
 
     def __init__(
         self,
@@ -570,8 +555,7 @@ class MsudrfCourtClient(CourtClient):
         on_captcha_attempt: AttemptSink | None = None,
     ) -> None:
         self._headless = headless
-        # Прокси, арендованный из пула на этот поход (None — идём напрямую). Может быть
-        # подменён закреплённым за движком — см. _resolve_proxy.
+        # Прокси, арендованный из пула на этот поход (None — идём напрямую).
         self._proxy = proxy
         # Куда сообщать о каждой оплаченной капче. Сам клиент в БД не ходит: он лишь
         # дописывает в запись то, что знает только он (номер проверки за поход и ключ
@@ -579,31 +563,6 @@ class MsudrfCourtClient(CourtClient):
         self._on_captcha_attempt = on_captcha_attempt
         # Сколько капч пришлось разгадать за последний поход — для отчёта скрипта.
         self.captchas_solved = 0
-
-    def _resolve_proxy(self) -> ProxySettings | None:
-        """Через какой прокси идти на портал.
-
-        Порядок такой:
-        1. Прокси, выбранный человеком (--proxy у скриптов) — не перебиваем никогда,
-           иначе флаг молча перестал бы работать и отлаживать конкретный адрес было
-           бы нечем.
-        2. Закреплённый за движком DEFAULT_PROXY_ID — обычный случай в бою. Тот, что
-           пришёл из пула, при этом отбрасываем: пул выбирает по LRU и про сайты не
-           знает, а до msudrf.ru доходит ровно один адрес.
-        3. Если закреплённого нет или он выключен — то, что дал вызывающий, а если и
-           того нет, обычная аренда. Пусть лучше попытка будет, чем не будет.
-
-        Решать это здесь, а не в вызывающем коде, — ВРЕМЕННО (см. DEFAULT_PROXY_ID).
-        По-хорошему выбирать прокси под адрес назначения должен пул.
-        """
-        if self._proxy is not None and self._proxy.explicit:
-            return self._proxy
-
-        pinned = lease_pinned_proxy(DEFAULT_PROXY_ID)
-        if pinned is not None:
-            return pinned
-
-        return self._proxy if self._proxy is not None else lease_proxy()
 
     def fetch_case_html_by_url(self, url: str) -> str:
         """Пройти по ссылке на карточку дела и вернуть её HTML.
@@ -614,7 +573,7 @@ class MsudrfCourtClient(CourtClient):
         """
         self.captchas_solved = 0
         with ChromiumSession(
-            headless=self._headless, proxy=self._resolve_proxy(), ignore_https_errors=True
+            headless=self._headless, proxy=self._proxy, ignore_https_errors=True
         ) as session:
             status = None
             try:
@@ -668,7 +627,7 @@ class MsudrfCourtClient(CourtClient):
         видно, что портал показал капчу не один раз.
         """
         png = session.page.locator(CAPTCHA_IMAGE).screenshot()
-        stored = save_captcha(url, png, datetime.utcnow())
+        stored = save_captcha(url, png, datetime.now(timezone.utc))
 
         def _report(attempt):
             """Дополнить запись тем, что известно только здесь, и отдать в учёт."""

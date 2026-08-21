@@ -29,7 +29,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -62,6 +62,20 @@ def session_scope():
         raise
     finally:
         session.close()
+
+
+# Тип для ВСЕХ моментов времени: timestamptz, значение всегда в UTC.
+#
+# Naive timestamp тут не годится. Момент пишут двое — питон (datetime.now(timezone.utc))
+# и сам Postgres (func.now()), — и у naive-колонки они совпадают лишь до тех пор, пока у
+# контейнера БД не задан TZ: стоит его выставить, и колонки молча разъедутся на часы.
+# timestamptz хранит момент независимо от пояса сессии и отдаёт его со смещением, так что
+# и сравнения, и сериализация в API становятся однозначными.
+#
+# ВАЖНО: это про МОМЕНТЫ. Календарные даты (дата поступления дела, дата документа) —
+# по-прежнему Date: у них нет времени, и приписывать им полночь значит выдумывать момент,
+# которого не было.
+UTC_DATETIME = DateTime(timezone=True)
 
 
 # Base — общий предок всех моделей; хранит метаданные таблиц (их читает Alembic).
@@ -217,13 +231,13 @@ class Case(Base):
     # event не попало.
     status: Mapped[str | None] = mapped_column(String)
     # Когда запись создана в БД (значение проставляет сервер БД).
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, server_default=func.now())
     # Когда строку последний раз трогали в БД (обновляется автоматически при UPDATE).
     # Показывать это пользователю как «дата обновления дела» НЕЛЬЗЯ: строку трогает любой
     # обход (например, отметкой last_checked_at), даже когда на портале ничего не
     # изменилось. Для пользователя есть last_checked_at и last_changed_at.
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        UTC_DATETIME, server_default=func.now(), onupdate=func.now()
     )
 
     # Дело переобходится по расписанию (см. sync_monitored_cases в app/monitoring/tasks.py).
@@ -235,10 +249,10 @@ class Case(Base):
     # Когда карточку последний раз ХОДИЛИ проверять — проставляется на каждом успешном
     # разборе, даже если ничего не изменилось. По этому полю планировщик выбирает, чья
     # очередь обходиться.
-    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, index=True)
     # Когда на портале последний раз что-то РЕАЛЬНО изменилось (сверка дала непустой
     # diff). Именно это пользователь и называет «дата последнего обновления дела».
-    last_changed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_changed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
 
     # Группа связанных дел; при удалении группы поле обнуляется (SET NULL), дело живёт.
     case_link_id: Mapped[int | None] = mapped_column(
@@ -343,11 +357,11 @@ class CaseUrl(Base):
     url: Mapped[str] = mapped_column(String, unique=True, index=True)
     # Когда по этому адресу последний раз удалось получить страницу. По нему выбираем,
     # какой ссылкой ходить при повторном обходе: рабочая важнее просто известной.
-    last_success_at: Mapped[datetime | None] = mapped_column()
+    last_success_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
     # created_at заодно отвечает на вопрос «когда эту ссылку впервые увидели».
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        UTC_DATETIME, server_default=func.now(), onupdate=func.now()
     )
 
     case: Mapped["Case"] = relationship(back_populates="urls")
@@ -363,7 +377,7 @@ class CaseLink(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     # Когда группа создана в БД.
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, server_default=func.now())
 
     # Дела, входящие в группу (все они связаны друг с другом).
     cases: Mapped[list["Case"]] = relationship(
@@ -399,6 +413,16 @@ class Court(Base):
     level: Mapped[CourtLevel] = mapped_column(Enum(CourtLevel))
     # Регион (субъект РФ), к которому относится суд.
     region: Mapped[str] = mapped_column(String)
+    # Часовой пояс суда в виде IANA-имени («Europe/Moscow», «Asia/Sakhalin»).
+    #
+    # Портал пишет время СВОИМ местным и пояса не указывает: «заседание в 10:00» в Москве
+    # и в Магадане — это разные моменты. Без этого поля местное время нельзя ни превратить
+    # в момент при сохранении, ни показать обратно так, как оно написано на сайте суда.
+    #
+    # Именно имя зоны, а не смещение: смещения меняются решениями законодателя (регионы
+    # переходили между поясами уже несколько раз), а имя зоны переживает такой перенос.
+    # Значение вычисляется из региона и кода — см. app/timezones.py.
+    timezone: Mapped[str] = mapped_column(String)
     # Базовый URL сайта суда (необязательное). Его хост — ключ, по которому определяется
     # суд дела, пришедшего ссылкой: на msudrf.ru у каждого участка свой поддомен.
     base_url: Mapped[str | None] = mapped_column(String)
@@ -446,10 +470,15 @@ class Event(Base):
     case_id: Mapped[int] = mapped_column(
         ForeignKey("case.id", ondelete="CASCADE"), index=True
     )
-    # Дата события на сайте суда (обязательная): вместе с state_description образует
-    # identity события, из которой считается uid (event_uid). Без даты uid не
-    # вычислить, поэтому NOT NULL.
-    event_date: Mapped[date] = mapped_column(Date)
+    # Момент события (обязательный). Время у порталов есть не всегда: у msudrf и СПб
+    # колонка «Время события» есть, у Москвы её нет вовсе — там время равно местной
+    # полуночи. Отличить «время неизвестно» от «событие в 00:00» по этому полю нельзя,
+    # и это осознанный размен: так же устроено разбор заседаний (_parse_datetime).
+    #
+    # В identity события (event_uid) входит только ДАТА этого момента в поясе суда, без
+    # времени: перенос заседания на час должен приезжать обновлением той же строки, а не
+    # новым событием. Подробнее — в докстринге event_uid.
+    event_date: Mapped[datetime] = mapped_column(UTC_DATETIME)
     # Описание состояния (обязательное, может быть длинным).
     state_description: Mapped[str] = mapped_column(Text)
     # Название документа-основания текстом (на портале ссылок обычно нет — только имя).
@@ -463,10 +492,10 @@ class Event(Base):
         ForeignKey("document.id", ondelete="SET NULL")
     )
     # Когда событие сохранено в БД.
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, server_default=func.now())
     # Когда запись последний раз обновлялась (обновляется автоматически при UPDATE).
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        UTC_DATETIME, server_default=func.now(), onupdate=func.now()
     )
 
     case: Mapped["Case"] = relationship(back_populates="events")
@@ -496,10 +525,10 @@ class PlaceHistory(Base):
     # Комментарий (необязательный).
     comment: Mapped[str | None] = mapped_column(Text)
     # Когда запись сохранена в БД.
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, server_default=func.now())
     # Когда запись последний раз обновлялась (обновляется автоматически при UPDATE).
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        UTC_DATETIME, server_default=func.now(), onupdate=func.now()
     )
 
     case: Mapped["Case"] = relationship(back_populates="place_history")
@@ -552,12 +581,12 @@ class Document(Base):
     # в БД идут только метаданные (дата и вид). Колонка оставлена для совместимости.
     document_text: Mapped[str | None] = mapped_column(Text)
     # Когда документ сохранён в БД.
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, server_default=func.now())
     # Когда запись последний раз обновлялась. Для документа фактически всегда равен
     # created_at: изменяемых полей у него нет (дата и вид входят в identity, текст не
     # храним). Колонка — для симметрии с остальными дочерними сущностями дела.
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        UTC_DATETIME, server_default=func.now(), onupdate=func.now()
     )
 
     case: Mapped["Case"] = relationship(back_populates="documents")
@@ -584,7 +613,7 @@ class CourtSession(Base):
     # Дата и ВРЕМЯ заседания (обязательные): портал отдаёт их одной колонкой
     # («30.07.2026 16:50»), и вместе со stage они образуют identity заседания, из которой
     # считается uid (court_session_uid). Без даты uid не вычислить, поэтому NOT NULL.
-    session_date: Mapped[datetime] = mapped_column(DateTime)
+    session_date: Mapped[datetime] = mapped_column(UTC_DATETIME)
     # Место проведения — «зал» портала: номер участка и адрес (необязательное, изменяемое).
     place: Mapped[str | None] = mapped_column(String)
     # Стадия заседания (обязательная): «Судебное заседание», «Беседа». Входит в identity.
@@ -595,10 +624,10 @@ class CourtSession(Base):
     # Основание (необязательное, изменяемое): например «Неявка подсудимого» при отложении.
     basis: Mapped[str | None] = mapped_column(String)
     # Когда заседание сохранено в БД.
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, server_default=func.now())
     # Когда запись последний раз обновлялась (обновляется автоматически при UPDATE).
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        UTC_DATETIME, server_default=func.now(), onupdate=func.now()
     )
 
     case: Mapped["Case"] = relationship(back_populates="court_sessions")
@@ -631,14 +660,23 @@ class Proxy(Base):
     enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), index=True
     )
-    # Заметка для человека: провайдер, до какого числа оплачен и т.п.
-    comment: Mapped[str | None] = mapped_column(String(255))
+    # До каких порталов этот адрес доходит: ключи из SITE_PROBES (app/courts/site_probe.py) —
+    # mos-sud, msudrf, spb. Годность у прокси РАЗНАЯ: провайдер может резать CONNECT на
+    # одни домены и пропускать другие, поэтому это набор, а не одно значение — один и тот
+    # же адрес берёт mos-sud и не берёт msudrf, а другой наоборот.
+    #
+    # Заполняет check_proxy.py --sites: он и так строит матрицу «прокси × портал».
+    # Пустой список = годность НЕ ПРОВЕРЯЛИ (не «никуда не годится»): такой прокси пул
+    # выдаёт, но в последнюю очередь — см. ProxyRepository.lease.
+    portals: Mapped[list[str]] = mapped_column(
+        ARRAY(String), default=list, server_default=text("'{}'::varchar[]")
+    )
     # Когда прокси последний раз выдавался из пула — по этому полю идёт ротация.
     # NULL = им ещё не ходили, такой берём первым.
-    last_used_at: Mapped[datetime | None] = mapped_column(index=True)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        UTC_DATETIME, server_default=func.now(), onupdate=func.now()
     )
 
     def __str__(self) -> str:
@@ -690,11 +728,11 @@ class SearchTask(Base):
     # Текст последней ошибки (необязательный).
     last_error: Mapped[str | None] = mapped_column(Text)
     # Когда последний раз пытались зайти на страницу.
-    last_attempt_at: Mapped[datetime | None] = mapped_column()
+    last_attempt_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
     # Когда задача создана и последний раз обновлялась.
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        UTC_DATETIME, server_default=func.now(), onupdate=func.now()
     )
 
     case: Mapped["Case | None"] = relationship()
@@ -766,12 +804,14 @@ class CaptchaSolve(Base):
     captcha_bucket: Mapped[str | None] = mapped_column(String)
     captcha_key: Mapped[str | None] = mapped_column(String)
     # Когда отправили на распознавание и когда получили ответ.
-    requested_at: Mapped[datetime | None] = mapped_column()
-    solved_at: Mapped[datetime | None] = mapped_column()
+    requested_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
+    solved_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME)
     # Сколько ждали ответа (мс).
     latency_ms: Mapped[int | None] = mapped_column()
     # Когда строка записана — по нему считаются расходы за период.
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        UTC_DATETIME, server_default=func.now(), index=True
+    )
 
     def __str__(self) -> str:
         return f"{self.provider} #{self.provider_task_id}: {self.cost} {self.currency}"
@@ -809,7 +849,9 @@ class OutboxEvent(Base):
     # Суть изменения: состав полей зависит от типа (см. app/monitoring/outbox.py).
     payload: Mapped[dict] = mapped_column(JSONB)
     # Когда изменение ОБНАРУЖЕНО (момент коммита обхода). Это и есть курсор клиента.
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        UTC_DATETIME, server_default=func.now(), index=True
+    )
 
     def __str__(self) -> str:
         return f"{self.event_type.value} по делу #{self.case_id}"

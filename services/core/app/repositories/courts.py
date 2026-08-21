@@ -7,13 +7,14 @@ from urllib.parse import urlsplit
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.timezones import timezone_for
 from app.models.database import Court, CourtLevel
 from app.validators import host_variants
 
 logger = logging.getLogger(__name__)
 
 # Поля суда, которые перезаписываются из JSON-справочника (code — ключ, его не трогаем).
-_SYNCED_FIELDS = ("name", "level", "region", "base_url")
+_SYNCED_FIELDS = ("name", "level", "region", "base_url", "timezone")
 
 # Номер судебного участка в названии суда: «Судебный участок № 235 ...».
 _PARTICIPOK_RE = re.compile(r"участок\s*№\s*(\d+)")
@@ -203,6 +204,9 @@ class CourtRepository:
                 "level": CourtLevel(entry["level"]),
                 "region": entry["region"],
                 "base_url": entry.get("base_url"),
+                # Пояса в JSON нет и быть не может: файл перегенерируется из страницы
+                # sudrf.ru и содержит ровно пять ключей. Вычисляем из региона и кода.
+                "timezone": timezone_for(entry["region"], entry["code"]),
             }
 
             court = existing.get(entry["code"])

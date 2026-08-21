@@ -3,7 +3,8 @@
 Монтируется на /admin. Вход по логину/паролю из config (env). Для каждой модели —
 свой ModelView со списком колонок; add/edit/delete работают из коробки.
 """
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 from sqladmin import Admin, ModelView, action
 from sqladmin.authentication import AuthenticationBackend
@@ -37,12 +38,30 @@ from app.monitoring.tasks import enqueue_case_resync
 from app.repositories import ProxyRepository
 
 
+# В каком поясе админка показывает моменты. Админка — инструмент одной команды, и ей
+# удобнее всегда видеть одно и то же время, а не пояс того суда, чья строка попалась.
+# Суффикс печатаем явно: до перехода на timestamptz в БД лежал UTC, а смотрели на него
+# как на московское — расхождение в три часа ничем себя не выдавало.
+ADMIN_TIMEZONE = ZoneInfo("Europe/Moscow")
+ADMIN_TIMEZONE_LABEL = "MSK"
+
+
 def _format_no_ms(value):
-    """Показать дату/время без миллисекунд (None -> пусто)."""
+    """Показать дату/время без миллисекунд (None -> пусто).
+
+    Моменты переводим в ADMIN_TIMEZONE: в БД они хранятся в UTC, и печатать их как есть
+    значит показывать время, которого ни у кого на часах нет. Календарные даты (дата
+    поступления дела, дата документа) не трогаем — у них нет ни времени, ни пояса.
+    """
     if value is None:
         return ""
     if isinstance(value, datetime):
-        return value.strftime("%d.%m.%Y %H:%M:%S")
+        # naive сюда попасть не должен, но если попадёт — считаем его UTC, как и всё,
+        # что писалось до перехода на timestamptz.
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        local = value.astimezone(ADMIN_TIMEZONE)
+        return f"{local:%d.%m.%Y %H:%M:%S} {ADMIN_TIMEZONE_LABEL}"
     if isinstance(value, date):
         return value.strftime("%d.%m.%Y")
     return value
@@ -140,7 +159,10 @@ class CourtAdmin(ModelView, model=Court):
     name_plural = "Суды"
     # base_url в списке: по его хосту определяется суд дела, пришедшего ссылкой, и
     # разбирать «почему дело привязалось не туда» начинают именно с адреса.
-    column_list = [Court.id, Court.code, Court.name, Court.base_url, Court.level, Court.region]
+    column_list = [
+        Court.id, Court.code, Court.name, Court.base_url,
+        Court.level, Court.region, Court.timezone,
+    ]
     column_searchable_list = [Court.code, Court.name, Court.region, Court.base_url]
 
     @action(
@@ -281,10 +303,10 @@ class ProxyAdmin(ModelView, model=Proxy):
         Proxy.host,
         Proxy.port,
         Proxy.enabled,
+        Proxy.portals,
         Proxy.last_used_at,
-        Proxy.comment,
     ]
-    column_searchable_list = [Proxy.host, Proxy.comment]
+    column_searchable_list = [Proxy.host]
     # Пароль не показываем ни в списке, ни в карточке — а в форме он есть,
     # иначе прокси с авторизацией не завести.
     column_details_exclude_list = [Proxy.password]

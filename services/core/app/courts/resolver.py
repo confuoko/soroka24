@@ -219,6 +219,51 @@ COURT_BY_DOMAIN = {
 }
 
 
+def client_class_by_uid(uid: str):
+    """Класс клиента суда по префиксу УИД (или None, если префикс неизвестен)."""
+    for prefix, court_client_cls in COURT_BY_PREFIX.items():
+        if uid.startswith(prefix):
+            return court_client_cls
+    return None
+
+
+def client_class_by_url(url: str):
+    """Класс клиента суда по домену ссылки (или None).
+
+    Порядок сверок — см. докстринг define_court_by_url: точное совпадение первым, и
+    только потом остальные написания хоста. Поэтому поиск класса живёт здесь один раз,
+    а не повторяется в каждом вызывающем: продублировать этот порядок значит однажды
+    привязать дело к соседнему региону.
+    """
+    host = (urlsplit(url).hostname or "").lower()
+    for candidate in host_variants(host) or [host]:
+        court_client_cls = _client_for_host(candidate)
+        if court_client_cls is not None:
+            return court_client_cls
+    return None
+
+
+def portal_for(uid: str | None = None, url: str | None = None) -> str | None:
+    """Ключ портала (mos-sud / msudrf / spb), на который предстоит идти, — или None.
+
+    Нужен ДО похода: прокси арендуется раньше, чем создаётся клиент суда, а выдавать
+    надо тот адрес, который до этого портала доходит (см. Proxy.portals). Поэтому здесь
+    только поиск класса, без создания экземпляра.
+
+    Ссылка важнее УИД: если дело завели ссылкой, портал определяется её хостом, а по
+    префиксу УИД того же дела мог бы найтись другой клиент.
+
+    None — портал неизвестен (суд не поддержан). Тогда прокси берётся без фильтра:
+    поход всё равно упадёт на UnsupportedCourt, но не из-за пустого пула.
+    """
+    court_client_cls = None
+    if url:
+        court_client_cls = client_class_by_url(url)
+    if court_client_cls is None and uid:
+        court_client_cls = client_class_by_uid(uid)
+    return getattr(court_client_cls, "portal", None)
+
+
 def define_court_by_uid(
     uid: str,
     proxy: ProxySettings | None = None,
@@ -230,16 +275,15 @@ def define_court_by_uid(
     proxy — арендованный из пула прокси, через который клиент пойдёт на портал.
     on_captcha_attempt — куда сообщать о расходах на капчу (учёт ведёт вызывающий).
     """
-    # Проверяем известные префиксы и возвращаем первый подходящий клиент.
-    for prefix, court_client_cls in COURT_BY_PREFIX.items():
-        if uid.startswith(prefix):
-            # экземпляр клиента суда
-            return court_client_cls(
-                proxy=proxy, headless=headless, on_captcha_attempt=on_captcha_attempt
-            )
-    # Ни один префикс не подошёл — по УИД такое дело не найти (возможно, его портал
-    # поддержан, но только по ссылке).
-    raise UnsupportedCourt(uid)
+    court_client_cls = client_class_by_uid(uid)
+    if court_client_cls is None:
+        # Ни один префикс не подошёл — по УИД такое дело не найти (возможно, его портал
+        # поддержан, но только по ссылке).
+        raise UnsupportedCourt(uid)
+    # экземпляр клиента суда
+    return court_client_cls(
+        proxy=proxy, headless=headless, on_captcha_attempt=on_captcha_attempt
+    )
 
 
 def _client_for_host(host: str):
@@ -272,15 +316,12 @@ def define_court_by_url(
     край), и дело привязалось бы к чужому суду. При точной сверке первым проходом такой
     хост совпадает сам с собой и до перебора не доходит.
     """
-    host = (urlsplit(url).hostname or "").lower()
-
-    for candidate in host_variants(host) or [host]:
-        court_client_cls = _client_for_host(candidate)
-        if court_client_cls is not None:
-            return court_client_cls(
-                proxy=proxy, headless=headless, on_captcha_attempt=on_captcha_attempt
-            )
-    raise UnsupportedCourt(url)
+    court_client_cls = client_class_by_url(url)
+    if court_client_cls is None:
+        raise UnsupportedCourt(url)
+    return court_client_cls(
+        proxy=proxy, headless=headless, on_captcha_attempt=on_captcha_attempt
+    )
 
 
 def is_supported_url(url: str) -> bool:

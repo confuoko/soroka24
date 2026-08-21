@@ -1,8 +1,9 @@
 """Доступ к пулу прокси (Proxy) в БД."""
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import String, cast, or_, select, update
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Session
 
 from app.models.database import Proxy
@@ -14,8 +15,22 @@ class ProxyRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def lease(self) -> Optional[Proxy]:
+    def lease(self, portal: Optional[str] = None) -> Optional[Proxy]:
         """Взять прокси из пула: самый давно не использованный, и сразу пометить занятым.
+
+        portal — ключ портала, на который собираемся идти (mos-sud / msudrf / spb).
+        Годность у адресов разная: провайдер режет CONNECT выборочно, и прокси, берущий
+        mos-sud, до msudrf может не дойти вовсе. Раньше это лечили закреплением одного
+        адреса за движком msudrf прямо в коде клиента; теперь годность лежит в
+        Proxy.portals, и выбирает по ней пул.
+
+        Непроверенные адреса (portals пуст) из выдачи НЕ исключаются, но идут последними:
+        пустой список значит «не проверяли», а не «не годится», и молча прятать такой
+        прокси нельзя — иначе заведённый без --sites адрес никогда бы не использовался.
+        А вот проверенные и НЕ подходящие порталу не выдаются никогда: поход через них
+        гарантированно сгорит на туннеле.
+
+        portal=None — фильтра нет (портал не определён, все прокси равны).
 
         Ротация по last_used_at: NULL (им ещё не ходили) идёт первым, дальше — по
         возрастанию времени последнего использования. Так нагрузка размазывается ровно
@@ -26,50 +41,24 @@ class ProxyRepository:
         то есть получит ДРУГОЙ прокси. Блокировка снимается на коммите session_scope(),
         поэтому держится миллисекунды, а не всё время работы браузера.
 
-        None — пул пуст (или все выключены).
+        None — пул пуст, все выключены или ни один адрес не годится для этого портала.
         """
+        query = select(Proxy).where(Proxy.enabled.is_(True))
+        if portal is not None:
+            suits = Proxy.portals.contains([portal])
+            unchecked = Proxy.portals == cast([], ARRAY(String))
+            query = query.where(or_(suits, unchecked)).order_by(suits.desc())
         proxy = self._session.scalar(
-            select(Proxy)
-            .where(Proxy.enabled.is_(True))
+            query
             .order_by(Proxy.last_used_at.asc().nullsfirst(), Proxy.id)
             .limit(1)
             .with_for_update(skip_locked=True)
         )
         if proxy is not None:
-            proxy.last_used_at = datetime.utcnow()
+            proxy.last_used_at = datetime.now(timezone.utc)
             # Сбрасываем отметку в БД сразу: сессия открыта с autoflush=False, и без
             # flush следующий SELECT в этой же сессии увидел бы старое last_used_at
             # и выдал тот же прокси — ротации бы не было.
-            self._session.flush()
-        return proxy
-
-    def lease_by_id(self, proxy_id: int) -> Optional[Proxy]:
-        """Взять из пула КОНКРЕТНЫЙ прокси по id и пометить его занятым.
-
-        Нужно порталам, до которых доходит не всякий адрес: пул про сайты ничего не
-        знает, и обычный lease() выдал бы случайный, а он получил бы отказ на туннеле.
-
-        Отметку last_used_at ставим, как и при обычной аренде: иначе закреплённый
-        прокси навсегда остался бы «самым давно не использованным» и обычный lease()
-        начал бы выдавать его первым всем остальным порталам.
-
-        None — прокси с таким id нет или он выключен в админке. Вызывающий код должен
-        в этом случае откатиться на обычную аренду, а не идти на портал напрямую.
-
-        Блокировка БЕЗ skip_locked, в отличие от lease(). Там пропустить занятую строку
-        правильно — рядом лежат другие прокси, и любой сгодится. Здесь пропускать
-        нечего: строка ровно одна, и skip_locked означал бы «сосед сейчас стамповал
-        last_used_at, поэтому идём мимо закреплённого прокси» — при двух параллельных
-        задачах вторая молча уходила на портал не с того адреса и падала на туннеле.
-        Ждать тут дёшево: транзакция закрывается сразу после отметки времени.
-        """
-        proxy = self._session.scalar(
-            select(Proxy)
-            .where(Proxy.id == proxy_id, Proxy.enabled.is_(True))
-            .with_for_update()
-        )
-        if proxy is not None:
-            proxy.last_used_at = datetime.utcnow()
             self._session.flush()
         return proxy
 

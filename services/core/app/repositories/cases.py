@@ -1,6 +1,6 @@
 """Доступ к карточкам дел (Case) и их адресам (CaseUrl) в БД."""
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import or_, select
@@ -156,7 +156,7 @@ class CaseRepository:
             select(CaseUrl).where(CaseUrl.url == canonical_case_url(url))
         )
         if case_url is not None:
-            case_url.last_success_at = datetime.utcnow()
+            case_url.last_success_at = datetime.now(timezone.utc)
 
     def set_monitoring(self, case_id: int, enabled: bool) -> Optional[Case]:
         """Включить/выключить периодический обход карточки. None — карточки нет."""
@@ -253,7 +253,7 @@ class CaseRepository:
             # last_changed_at тоже: появление карточки — само по себе изменение, а список
             # changes у новой карточки пустой по построению, и mark_checked ниже дату бы
             # не проставил. Пустая дата выглядела бы как «дело никогда не менялось».
-            case = Case(uid=uid, court=court, code=code, last_changed_at=datetime.utcnow())
+            case = Case(uid=uid, court=court, code=code, last_changed_at=datetime.now(timezone.utc))
             self._session.add(case)
 
         # Обновляем только те поля, что реально пришли от парсера. Парсер отдаёт ВСЕ

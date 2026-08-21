@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from app.timezones import to_utc
 from app.models.database import Case, CourtSession
 
 # Фиксированный namespace для uid заседаний (задан один раз, менять нельзя — иначе uid
@@ -27,6 +28,11 @@ def court_session_uid(card_key: str, session_at: datetime, stage: str) -> uuid.U
     стадии, и без времени два заседания в один день дали бы один uid — то есть второе
     просто не сохранилось бы. Перенос заседания портал оформляет НОВОЙ строкой (у старой
     появляется результат «Отложено»), поэтому время в рамках строки стабильно.
+
+    session_at — МЕСТНОЕ время суда (naive), ровно как на странице. Ключ считается именно
+    от него, а не от хранимого момента в UTC: иначе один и тот же «14:05» в Москве и во
+    Владивостоке давал бы разные ключи, а перевод базы на timestamptz переписал бы uid
+    всех уже сохранённых заседаний и породил бы в outbox волну «удалено/создано».
 
     place/result/basis сюда НЕ входят — они изменяемые (у будущего заседания результата
     ещё нет, потом он появляется), и их правка должна детектиться как UPDATE той же
@@ -56,6 +62,7 @@ class CourtSessionRepository:
         наполняем desired_uids и добавляем/обновляем, и только потом удаляем те, чей uid
         не встретился на странице.
         """
+        court_tz = case.court.timezone
         existing = {s.uid: s for s in case.court_sessions}
         desired_uids: set[uuid.UUID] = set()
 
@@ -64,8 +71,11 @@ class CourtSessionRepository:
 
         # 1. Проход по заседаниям, которые есть на актуальной странице
         for item in sessions_data:
-            # Определяем uid заседания
-            uid = court_session_uid(case.card_key, item["session_date"], item["stage"])
+            # Парсер отдаёт МЕСТНОЕ время суда (naive) — ровно то, что на странице.
+            # В ключ идёт оно, в БД — тот же момент, переведённый в UTC.
+            local_at = item["session_date"]
+            session_at = to_utc(local_at, court_tz)
+            uid = court_session_uid(case.card_key, local_at, item["stage"])
             # Портал может отдать две одинаковые строки — считаем их одним заседанием.
             # Обработать вторую нельзя: uid у неё тот же, и UNIQUE ix_court_session_uid
             # уронит commit вместе со всей транзакцией дела.
@@ -79,7 +89,7 @@ class CourtSessionRepository:
             if existing_session is None:
                 session = CourtSession(
                     uid=uid,
-                    session_date=item["session_date"],
+                    session_date=session_at,
                     place=item.get("place"),
                     stage=item["stage"],
                     result=item.get("result"),

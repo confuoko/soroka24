@@ -86,6 +86,7 @@ class SpbMirCourtClient(CourtClient):
     """Клиент мировых судов Санкт-Петербурга. Страницы считаем типом D."""
 
     page_type = "D"
+    portal = "spb"
 
     def __init__(
         self,

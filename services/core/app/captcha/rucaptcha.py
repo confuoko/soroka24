@@ -21,7 +21,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Callable, Optional
 
@@ -181,7 +181,7 @@ def solve_image(png: bytes, on_attempt: Optional[AttemptSink] = None) -> Captcha
         },
     )
     task_id = created["taskId"]
-    requested_at = datetime.utcnow()
+    requested_at = datetime.now(timezone.utc)
     logger.debug("Капча отправлена на распознавание, задача %s", task_id)
 
     deadline = time.monotonic() + CAPTCHA_TIMEOUT
@@ -197,7 +197,7 @@ def solve_image(png: bytes, on_attempt: Optional[AttemptSink] = None) -> Captcha
                 cost=_parse_cost(result),
                 solve_count=result.get("solveCount"),
                 requested_at=requested_at,
-                ready_at=datetime.utcnow(),
+                ready_at=datetime.now(timezone.utc),
             )
             logger.debug(
                 "Капча разгадана: задача %s, ответ из %d симв., стоимость %s",
@@ -215,7 +215,7 @@ def solve_image(png: bytes, on_attempt: Optional[AttemptSink] = None) -> Captcha
                     task_id=task_id,
                     status=ATTEMPT_TIMEOUT,
                     requested_at=requested_at,
-                    ready_at=datetime.utcnow(),
+                    ready_at=datetime.now(timezone.utc),
                 ),
             )
             raise CaptchaError(

@@ -12,3 +12,4 @@ itsdangerous==2.2.0
 beautifulsoup4==4.12.3
 lxml==5.3.0
 pytest==8.3.4
+tzdata==2026.3

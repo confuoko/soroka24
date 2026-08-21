@@ -138,6 +138,11 @@ class CourtClient(ABC):
 
     page_type — тип страницы (по нему выбирается парсер в app/parsers/).
 
+    portal — ключ портала (mos-sud / msudrf / spb). По нему пул выдаёт прокси, который
+    до этого портала действительно доходит: провайдеры режут CONNECT выборочно, и адрес,
+    берущий mos-sud, до msudrf может не дойти вовсе. Те же ключи у проб в
+    app/courts/site_probe.py — они и заполняют Proxy.portals.
+
     Конструктор наследника обязан принимать два именованных аргумента (их передаёт
     резолвер, см. app/courts/resolver.py):
 
@@ -161,6 +166,7 @@ class CourtClient(ABC):
     """
 
     page_type: str
+    portal: str
 
     def fetch_cases_by_uid(self, uid: str) -> list[FetchedCard]:
         """Найти по УИД все дела портала и вернуть их карточки."""

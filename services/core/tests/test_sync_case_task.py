@@ -558,7 +558,6 @@ def test_broken_row_does_not_lose_the_others(task_id, monkeypatch) -> None:
         tasks, "_court_by_participok", lambda region_code, number: tasks.CourtRef(id=1, code="77MS0002")
     )
     monkeypatch.setattr(tasks, "_take_snapshot", lambda *a, **kw: None)
-    monkeypatch.setattr(tasks, "_record_parse_entry", lambda *a, **kw: None)
     monkeypatch.setattr(tasks, "_attach_captcha_costs_to_case", lambda *a, **kw: None)
     succeeded = []
     monkeypatch.setattr(

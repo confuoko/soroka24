@@ -80,6 +80,11 @@ class CourtOut(_FromORM):
     name: str
     level: CourtLevel
     region: str
+    # IANA-пояс суда («Europe/Moscow», «Asia/Sakhalin»). Все моменты в ответе уже идут со
+    # смещением, а это поле нужно клиенту, чтобы показать их МЕСТНЫМ временем суда — так,
+    # как они написаны на сайте. Переключатель «моё время / местное» клиент делает сам,
+    # без запроса к серверу: core про пользователей и их пояса не знает.
+    timezone: str
     base_url: Optional[str] = None
 
 
@@ -116,7 +121,9 @@ class EventOut(_FromORM):
     """Событие «Истории состояний» в ответе API."""
 
     uid: uuid.UUID
-    event_date: date  # NOT NULL в БД: входит в identity события (см. event_uid)
+    # Момент события со смещением («2026-08-19T10:00:00+03:00»). Времени у части порталов
+    # нет — там это местная полночь; отличить её от события в 00:00 нельзя.
+    event_date: datetime  # NOT NULL в БД: входит в identity события (см. event_uid)
     state_description: str
     document_str: Optional[str] = None
     # «Дата размещения» события на портале (страницы типа B).

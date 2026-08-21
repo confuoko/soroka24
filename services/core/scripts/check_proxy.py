@@ -24,7 +24,7 @@
     # купили новую прокси: проверить её по всем порталам судов
     python scripts/check_proxy.py --url http://user:pass@host:port --sites all
     # проверить и, если жив, записать в таблицу proxy
-    python scripts/check_proxy.py --url http://user:pass@host:port --save "куплен до 01.09"
+    python scripts/check_proxy.py --url http://user:pass@host:port --save
     # проверить все включённые прокси из БД (нужна поднятая БД)
     python scripts/check_proxy.py
     # весь пул по всем порталам, заодно посмотреть, как отвечают напрямую
@@ -32,9 +32,10 @@
     # заодно посмотреть глазами, что видит браузер
     python scripts/check_proxy.py --url ... --no-headless
 
-В БД скрипт пишет только по флагу --save (и только строку из --url). Результаты
-проверки по порталам нигде не сохраняются: комментарии к прокси в /admin ведутся
-руками, скрипт лишь подсказывает готовую строку.
+В БД скрипт пишет только по флагу --save (и только строку из --url). Вместе с --sites
+он заодно проставляет Proxy.portals — список порталов, до которых адрес дошёл. По нему
+пул и выбирает прокси под конкретный поход, поэтому заводить новый адрес стоит именно
+с --sites: без него годность останется неизвестной.
 
 Адрес БД берётся из app.config.DATABASE_URL (env DATABASE_URL).
 """
@@ -105,22 +106,23 @@ def _print_matrix(rows: list[dict], site_names: list[str]) -> None:
         print("  " + "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(line)))
 
 
-def _comment_hint(row: dict, site_names: list[str]) -> str:
-    """Строка для поля comment в /admin — её предлагаем скопировать руками.
+def _passed_portals(row: dict) -> list[str]:
+    """Порталы, до которых этот прокси дошёл, — в том виде, в каком их ждёт Proxy.portals.
 
-    Сам скрипт comment не трогает: там живут заметки человека (у кого куплено, до
-    какого числа), и затирать их выводом проверки нельзя.
+    Это и есть ответ на вопрос «куда годится адрес», по которому пул выбирает прокси
+    под конкретный поход (ProxyRepository.lease). Раньше тот же вывод копировали руками
+    в поле comment; теперь он попадает в БД сам.
     """
-    parts = [
-        f"{name} — {'да' if row['sites'][name].ok else 'нет'}"
-        for name in site_names
-        if name in row["sites"]
-    ]
-    return "; ".join(parts)
+    return sorted(name for name, result in row["sites"].items() if result.ok)
 
 
-def _save(proxy: ProxySettings, comment: str) -> None:
-    """Записать проверенный прокси в таблицу proxy (или обновить существующий)."""
+def _save(proxy: ProxySettings, portals: list[str] | None) -> None:
+    """Записать проверенный прокси в таблицу proxy (или обновить существующий).
+
+    portals=None — прогон был без --sites, годность не измеряли. Тогда поле не трогаем:
+    у существующей строки там могут лежать результаты прошлой проверки, и затирать их
+    пустотой нельзя — пул перестал бы считать адрес годным.
+    """
     with session_scope() as session:
         repo = ProxyRepository(session)
         existing = repo.get_by_host_port(proxy.host, proxy.port)
@@ -130,7 +132,8 @@ def _save(proxy: ProxySettings, comment: str) -> None:
             existing.username = proxy.username
             existing.password = proxy.password
             existing.enabled = True
-            existing.comment = comment
+            if portals is not None:
+                existing.portals = portals
             print(f"обновлён существующий прокси id={existing.id}")
             return
         session.add(
@@ -141,7 +144,7 @@ def _save(proxy: ProxySettings, comment: str) -> None:
                 username=proxy.username,
                 password=proxy.password,
                 enabled=True,
-                comment=comment,
+                portals=portals or [],
             )
         )
         print("прокси добавлен в пул")
@@ -160,7 +163,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--save",
-        metavar="КОММЕНТАРИЙ",
+        action="store_true",
         help="записать прокси в таблицу proxy, если проверка прошла (только вместе с --url)",
     )
     parser.add_argument(
@@ -250,17 +253,10 @@ def main() -> None:
             failed += 1
 
         if args.save and proxy is not None:
-            _save(proxy, args.save)
+            _save(proxy, _passed_portals(row) if site_names else None)
 
     if site_names:
         _print_matrix(rows, site_names)
-        # Подсказку печатаем только по тем, кто до порталов вообще доехал: у мёртвого
-        # прокси проб нет, и предлагать по нему строку комментария не о чем.
-        probed = [row for row in rows if row["sites"]]
-        if probed:
-            print("\nСтрока для поля comment в /admin (скопировать руками):")
-            for row in probed:
-                print(f"  {row['label']}: {_comment_hint(row, site_names)}")
 
     # Ненулевой код возврата, чтобы скрипт годился для проверки в CI/по расписанию.
     sys.exit(1 if failed else 0)

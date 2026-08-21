@@ -17,7 +17,7 @@
 портала. Так и надо: домен говорит лишь, какую вёрстку мы ОЖИДАЕМ увидеть у региона, а
 отдать портал может другую (регионы подключают по домену, не открыв ни одной карточки).
 """
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from bs4 import BeautifulSoup, Tag
 
@@ -36,6 +36,11 @@ def clean_or_none(text: str) -> str | None:
 DATE_FORMAT = "%d.%m.%Y"
 
 
+# Формат времени события — «14:30». Колонка есть не у всех: у типа B она всегда, у типа C
+# то есть, то нет (Пермь отдаёт, Адыгея нет), причём различается даже внутри одного региона.
+TIME_FORMAT = "%H:%M"
+
+
 def parse_date(text: str) -> date | None:
     """Разобрать дату формата ДД.ММ.ГГГГ; пустое/некорректное значение → None."""
     text = clean(text)
@@ -45,6 +50,33 @@ def parse_date(text: str) -> date | None:
         return datetime.strptime(text, DATE_FORMAT).date()
     except ValueError:
         return None
+
+
+def parse_local_datetime(date_text: str, time_text: str = "") -> datetime | None:
+    """Дата и (необязательное) время одной строкой — в МЕСТНОЕ время суда.
+
+    Возвращает naive datetime: портал пишет своим местным временем и пояса не указывает,
+    а превращает его в момент уже слой БД (см. app/timezones.to_utc). Отдавать
+    отсюда aware-значение нельзя — парсер про суд ничего не знает.
+
+    Времени нет (колонки нет, ячейка пуста или мусор) → местная полночь. Отличить её от
+    события, которое действительно в 00:00, потом нельзя; это осознанный размен, ровно
+    так же устроен разбор заседаний Москвы (_parse_datetime в moscow_type_a.py).
+
+    Нет даты → None: без неё событие не идентифицировать.
+    """
+    day = parse_date(date_text)
+    if day is None:
+        return None
+    moment = clean(time_text)
+    if moment:
+        try:
+            parsed = datetime.strptime(moment, TIME_FORMAT).time()
+            return datetime.combine(day, parsed)
+        except ValueError:
+            # Мусор в колонке времени не должен ронять разбор всего события.
+            pass
+    return datetime.combine(day, time.min)
 
 
 # Вкладки: названия в ul#tabs, тела — в div#contentt. Сопоставляются только по порядку.
@@ -155,6 +187,8 @@ EVENT_NAME_HEADINGS = frozenset({"наименование события"})
 # У КоАП вторая колонка подписана просто «Результат».
 EVENT_RESULT_HEADINGS = frozenset({"результат события", "результат"})
 EVENT_DATE_HEADINGS = frozenset({"дата события"})
+# Колонка времени необязательная — см. комментарий к parse_local_datetime.
+EVENT_TIME_HEADINGS = frozenset({"время события", "время"})
 EVENT_PUBLISHED_HEADINGS = frozenset({"дата размещения"})
 
 

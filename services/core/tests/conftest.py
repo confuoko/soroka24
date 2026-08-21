@@ -34,6 +34,7 @@ def court(session) -> Court:
         name="Судебный участок № 2",
         level=CourtLevel.MIRSUD,
         region="Город Москва",
+        timezone="Europe/Moscow",
         base_url="http://mos-sud.ru/ms/2",
     )
     session.add(row)
@@ -48,7 +49,7 @@ def no_proxy(monkeypatch):
     Без этого любой тест задачи падал бы на ProxyUnavailable (в тестовой БД пул пуст,
     а COURT_PROXY_REQUIRED=1). Сам пул проверяется отдельно, в test_proxy_pool.py.
     """
-    monkeypatch.setattr(tasks, "lease_proxy", lambda: None)
+    monkeypatch.setattr(tasks, "lease_proxy", lambda portal=None: None)
 
 
 @pytest.fixture

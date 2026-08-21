@@ -48,6 +48,7 @@ from app.parsers.msudrf_shared import (
     EVENT_DESCRIPTION_SEPARATOR,
     EVENT_NAME_HEADINGS,
     EVENT_RESULT_HEADINGS,
+    EVENT_TIME_HEADINGS,
     EVENTS_TABS,
     JUDGE_LABELS,
     PERSONS_TABS,
@@ -56,6 +57,7 @@ from app.parsers.msudrf_shared import (
     column_index,
     find_tab,
     parse_date,
+    parse_local_datetime,
     tab_bodies,
 )
 
@@ -128,6 +130,10 @@ def _event_columns(rows: list[Tag]) -> tuple[dict[str, int], int] | None:
             {
                 "name": name_col,
                 "date": column_index(headings, EVENT_DATE_HEADINGS),
+                # Колонка времени у этой вёрстки непостоянна: Пермь и Тыва (17MS0019) её
+                # отдают, Адыгея нет, а в Рязанской области она есть у одного дела и нет
+                # у другого. Поэтому None здесь — норма, а не признак поломки.
+                "time": column_index(headings, EVENT_TIME_HEADINGS),
                 "result": column_index(headings, EVENT_RESULT_HEADINGS),
             },
             index,
@@ -173,7 +179,10 @@ def _parse_events(tab: Tag) -> tuple[list[dict], str | None]:
         # Состояние дела — наименование последней строки, поэтому перетираем на каждой.
         status = name
 
-        event_date = parse_date(_cell(cells, columns["date"]))
+        # Время — местное для суда; колонки может не быть, тогда местная полночь.
+        event_date = parse_local_datetime(
+            _cell(cells, columns["date"]), _cell(cells, columns["time"])
+        )
         if event_date is None:
             continue  # без даты событие не может участвовать в детекте изменений
 

@@ -42,6 +42,7 @@ def courts(session) -> dict[str, Court]:
             name=name,
             level=CourtLevel.MIRSUD,
             region="Тестовый регион",
+            timezone="Europe/Moscow",
             base_url=base_url,
         )
         session.add(row)
@@ -96,6 +97,7 @@ def test_participok_search_is_limited_to_the_region(session, courts) -> None:
         name="Судебный участок № 463 другого региона",
         level=CourtLevel.MIRSUD,
         region="Другой тестовый регион",
+        timezone="Europe/Moscow",
     )
     session.add(other_region)
     session.flush()
@@ -137,6 +139,7 @@ def test_ambiguous_participok_picks_nobody(session, courts) -> None:
         name="Судебный участок № 463 другого района",
         level=CourtLevel.MIRSUD,
         region="Тестовый регион",
+        timezone="Europe/Moscow",
     )
     session.add(twin)
     session.flush()
@@ -168,6 +171,7 @@ def test_host_is_found_in_any_spelling_of_the_participok_label(session, courts) 
         name="Судебный участок № 26 Тестовой области",
         level=CourtLevel.MIRSUD,
         region="Тестовый регион",
+        timezone="Europe/Moscow",
         base_url="http://26zz.test.ru",
     )
     session.add(glued)
@@ -192,6 +196,7 @@ def test_shared_host_picks_nobody(session, courts) -> None:
         name="Судебный участок № 500",
         level=CourtLevel.MIRSUD,
         region="Тестовый регион",
+        timezone="Europe/Moscow",
         base_url="https://463.zz.test",
     )
     session.add(shared)

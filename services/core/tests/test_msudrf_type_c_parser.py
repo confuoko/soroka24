@@ -21,7 +21,7 @@
 УИД ни на одной из этих страниц нет — карточкам достаётся самодельный ключ от ссылки
 (synthetic_uid в app/validators.py), поэтому так названы и файлы фикстур.
 """
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from app.parsers.msudrf_type_c import MsudrfTypeCParser
@@ -77,8 +77,8 @@ def test_four_column_movement_table() -> None:
     card = _parse(ADYGEA_ORDER)
 
     assert [(e["event_date"], e["state_description"]) for e in card["events"]] == [
-        (date(2026, 7, 24), "Регистрация судебного приказа"),
-        (date(2026, 7, 30), "Окончание производства"),
+        (datetime(2026, 7, 24, 0, 0), "Регистрация судебного приказа"),
+        (datetime(2026, 7, 30, 0, 0), "Окончание производства"),
     ]
     # Состояние дела — последняя строка таблицы, даже если даты у неё нет.
     assert card["status"] == "Сдача в архив"
@@ -92,7 +92,8 @@ def test_five_column_movement_table_keeps_result() -> None:
 
     assert len(card["events"]) == 1
     event = card["events"][0]
-    assert event["event_date"] == date(2026, 8, 18)
+    # Колонка «Время события» у этой вёрстки есть — время попадает в событие.
+    assert event["event_date"] == datetime(2026, 8, 18, 14, 0)
     assert event["state_description"] == "Рассмотрение дела"
     assert card["status"] == "Рассмотрение дела"
 
@@ -197,9 +198,9 @@ def test_same_layout_in_a_third_region() -> None:
     assert card["judge_names"] == ["Болонина Елена Николаевна"]
     assert card["category"].startswith("Споры, связанные с имущественными правами")
     assert [e["event_date"] for e in card["events"]] == [
-        date(2026, 6, 25),
-        date(2026, 7, 28),
-        date(2026, 8, 18),
+        datetime(2026, 6, 25, 0, 0),
+        datetime(2026, 7, 28, 11, 0),
+        datetime(2026, 8, 18, 10, 30),
     ]
     # Роль отдаём сырой строкой с портала: словарь ролей открытый, тут «Материальный истец».
     assert card["sides"] == [

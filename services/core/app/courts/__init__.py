@@ -16,12 +16,14 @@ from app.courts.resolver import (
     define_court_by_uid,
     define_court_by_url,
     is_supported_url,
+    portal_for,
 )
 
 __all__ = [
     "define_court_by_uid",
     "define_court_by_url",
     "is_supported_url",
+    "portal_for",
     "MoscowMirCourtClient",
     "MsudrfCourtClient",
     "MsudrfTypeCCourtClient",

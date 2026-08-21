@@ -24,7 +24,7 @@
 """
 import argparse
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -125,7 +125,7 @@ def main() -> None:
             headless=not args.no_headless,
             on_captcha_attempt=spent.append,
         )
-        started = datetime.utcnow()
+        started = datetime.now(timezone.utc)
         court_name, court_code = _court(url)
         try:
             html = client.fetch_case_html_by_url(url)
@@ -139,7 +139,7 @@ def main() -> None:
             print(f"  капчи: {_captcha_report(spent)}\n")
             continue
 
-        elapsed = (datetime.utcnow() - started).total_seconds()
+        elapsed = (datetime.now(timezone.utc) - started).total_seconds()
         print(f"  [OK ] html: {len(html)} симв., капчи: {_captcha_report(spent)}")
         print(f"  УИД: {uid}")
         print(f"  суд по ссылке: {court_name}")

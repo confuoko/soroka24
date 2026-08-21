@@ -36,10 +36,6 @@ class ProxySettings:
     port: int
     username: Optional[str] = None
     password: Optional[str] = None
-    # Прокси выбран человеком (флаг --proxy у скриптов), а не выдан пулом. Клиент суда,
-    # за которым закреплён свой прокси, такой выбор не перебивает: иначе флаг молча
-    # игнорировался бы, и отладить конкретный адрес было бы нечем.
-    explicit: bool = False
 
     @property
     def server(self) -> str:
@@ -66,13 +62,15 @@ def parse_proxy_url(url: str) -> ProxySettings:
         # unquote — в пароле могут быть %-экранированные символы.
         username=unquote(parsed.username) if parsed.username else None,
         password=unquote(parsed.password) if parsed.password else None,
-        # Строку прокси передают руками, значит это осознанный выбор.
-        explicit=True,
     )
 
 
-def lease_proxy() -> Optional[ProxySettings]:
+def lease_proxy(portal: Optional[str] = None) -> Optional[ProxySettings]:
     """Взять прокси из пула в БД перед походом в суд.
+
+    portal — куда собираемся идти (mos-sud / msudrf / spb). Пул отдаст адрес, который до
+    этого портала доходит: провайдеры режут CONNECT выборочно, и прокси, берущий
+    mos-sud, до msudrf может не дойти. None — портал не определён, фильтра нет.
 
     Транзакция короткая (только выбор строки и отметка времени) и закрывается ДО
     запуска браузера — блокировку строки на время сетевой работы не держим.
@@ -80,49 +78,20 @@ def lease_proxy() -> Optional[ProxySettings]:
     None — ходим напрямую; это разрешено только при COURT_PROXY_REQUIRED=0.
     """
     with session_scope() as session:
-        proxy = ProxyRepository(session).lease()
+        proxy = ProxyRepository(session).lease(portal=portal)
         if proxy is None:
+            # Пул может быть не пуст вовсе: до этого портала просто не доходит ни один
+            # адрес. Отличать важно — лечится это по-разному (докупить прокси против
+            # прогнать check_proxy.py --sites и заполнить portals).
+            where = f" для портала {portal}" if portal else ""
             if COURT_PROXY_REQUIRED:
                 raise ProxyUnavailable(
-                    "Пул прокси пуст (нет включённых прокси в таблице proxy), "
+                    f"В пуле нет подходящего прокси{where} (таблица proxy), "
                     "а COURT_PROXY_REQUIRED=1 — идти на портал напрямую запрещено"
                 )
-            logger.warning("Пул прокси пуст, идём на портал напрямую")
+            logger.warning("В пуле нет подходящего прокси%s, идём напрямую", where)
             return None
         # Забираем значения ДО выхода из session_scope — дальше объект отвязан.
-        return ProxySettings(
-            scheme=proxy.scheme,
-            host=proxy.host,
-            port=proxy.port,
-            username=proxy.username,
-            password=proxy.password,
-        )
-
-
-def lease_pinned_proxy(proxy_id: int) -> Optional[ProxySettings]:
-    """Взять из пула закреплённый за порталом прокси по его id в таблице proxy.
-
-    Временная мера для порталов, до которых доходит не всякий адрес: пул выбирает по
-    LRU и про сайты ничего не знает, поэтому обычный lease() выдаёт годный прокси лишь
-    иногда, а остальные заходы сгорают в ретраях. Правильное решение — учить пул
-    выбирать по адресу назначения, и тогда эта функция уходит.
-
-    Берём именно ID, а не строку подключения: логин и пароль остаются в БД и не
-    попадают в исходники (см. докстринг app/browser/relay.py).
-
-    None — прокси с таким id нет или он выключен в админке. Исключение НЕ бросаем:
-    вызывающий откатывается на обычную аренду, и портал остаётся рабочим, пока в пуле
-    есть хоть что-то подходящее.
-    """
-    with session_scope() as session:
-        proxy = ProxyRepository(session).lease_by_id(proxy_id)
-        if proxy is None:
-            logger.warning(
-                "Закреплённый прокси id=%s недоступен (нет в пуле или выключен) — "
-                "берём обычный из пула",
-                proxy_id,
-            )
-            return None
         return ProxySettings(
             scheme=proxy.scheme,
             host=proxy.host,

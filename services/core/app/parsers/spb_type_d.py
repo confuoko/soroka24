@@ -35,8 +35,10 @@ extract_case_code и CourtClient.extract_uid) ещё до разбора, пот
 - Событие и его результат портал склеивает САМ, через « / » («Решение вопроса о
   принятии заявления / Заявление принято»), — в отличие от типа B, где их приходится
   сшивать из двух колонок. Кладём строку как есть.
-- Колонка «Время события» в модели события места не имеет (Event.event_date — Date), в
-  identity не входит и на детект изменений не влияет. Сознательно не разбираем.
+- Колонка «Время события» разбирается и попадает в Event.event_date вместе с датой.
+  Время МЕСТНОЕ для суда — портал пояса не указывает; в момент его превращает слой БД
+  (app/timezones.to_utc). В identity события время не входит — только дата, см.
+  докстринг event_uid.
 - «Дата поступления» здесь есть у ВСЕХ видов производства, а не только у гражданских,
   как на других порталах. Метки «Дата регистрации» на портале нет, поэтому
   registration_date у дел Петербурга всегда None.
@@ -44,7 +46,7 @@ extract_case_code и CourtClient.extract_uid) ещё до разбора, пот
   app/courts/spb_mir_court.py). Если браузер отдал документ до отрисовки, таблиц в нём
   ещё нет — разбор такого документа обязан вернуть пустой результат, а не упасть.
 """
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from bs4 import BeautifulSoup, Tag
 
@@ -61,8 +63,9 @@ def _clean_or_none(text: str) -> str | None:
     return _clean(text) or None
 
 
-# Формат дат на портале — везде один, и в основных сведениях, и в таблице событий.
+# Форматы на портале везде одни и те же: и в основных сведениях, и в таблице событий.
 DATE_FORMAT = "%d.%m.%Y"
+TIME_FORMAT = "%H:%M"
 
 
 def _parse_date(text: str) -> date | None:
@@ -74,6 +77,24 @@ def _parse_date(text: str) -> date | None:
         return datetime.strptime(text, DATE_FORMAT).date()
     except ValueError:
         return None
+
+
+def _parse_local_datetime(date_text: str, time_text: str) -> datetime | None:
+    """Дата и время события в МЕСТНОЕ время суда (naive) — как написано на странице.
+
+    Время у портала есть всегда, но ячейка бывает пустой (у свежих дел заседание ещё не
+    назначено) — тогда местная полночь, как и у остальных парсеров. Нет даты → None.
+    """
+    day = _parse_date(date_text)
+    if day is None:
+        return None
+    moment = _clean(time_text)
+    if moment:
+        try:
+            return datetime.combine(day, datetime.strptime(moment, TIME_FORMAT).time())
+        except ValueError:
+            pass  # мусор во времени не должен ронять разбор всего события
+    return datetime.combine(day, time.min)
 
 
 # Печатное представление карточки — только его и разбираем (см. докстринг модуля).
@@ -100,7 +121,7 @@ EVENTS_HEADER = "Описание события / Результат событ
 # Колонки таблицы сторон и таблицы движения дела. Порядок у портала фиксирован, а
 # шапка уже опознана, так что внутри таблицы берём ячейки по индексу.
 SIDE_NAME_COL, SIDE_ROLE_COL = 0, 1
-EVENT_DESCRIPTION_COL, EVENT_DATE_COL, EVENT_PUBLISHED_COL = 0, 1, 3
+EVENT_DESCRIPTION_COL, EVENT_DATE_COL, EVENT_TIME_COL, EVENT_PUBLISHED_COL = 0, 1, 2, 3
 
 
 def _print_tables(soup: BeautifulSoup) -> list[Tag]:
@@ -206,7 +227,9 @@ def _parse_events(table: Tag) -> list[dict]:
             continue
 
         description = _clean(cells[EVENT_DESCRIPTION_COL].get_text())
-        event_date = _parse_date(cells[EVENT_DATE_COL].get_text())
+        event_date = _parse_local_datetime(
+            cells[EVENT_DATE_COL].get_text(), cells[EVENT_TIME_COL].get_text()
+        )
         if not description or event_date is None:
             continue
 

@@ -203,9 +203,12 @@ CARD_FIELDS = (
 def _parse_state_history(soup: BeautifulSoup) -> list[dict]:
     """Разобрать таблицу «История состояний» в список событий.
 
-    Возвращает {"event_date": date, "state_description": str, "document_str": str|None}.
+    Возвращает {"event_date": datetime, "state_description": str, "document_str": str|None}.
     Обязательны дата и описание состояния (образуют identity события) — строки без
     любого из них пропускаем. Пустое «Документ-основание» → document_str = None.
+
+    Колонки времени у этой таблицы нет вовсе — только «Дата», — поэтому событие получает
+    местную полночь. Так же ведёт себя разбор заседаний, когда портал отдал одну дату.
     """
     heading = soup.find(
         "h3", string=lambda s: s is not None and _clean(s) == STATE_HISTORY_HEADING
@@ -222,7 +225,7 @@ def _parse_state_history(soup: BeautifulSoup) -> list[dict]:
         if len(cells) < 3:
             continue
 
-        event_date = _parse_date(cells[0].get_text())
+        event_date = _parse_datetime(cells[0].get_text())
         state_description = _clean(cells[1].get_text())
         document_str = _clean(cells[2].get_text()) or None
 

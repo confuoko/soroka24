@@ -58,6 +58,7 @@ class MoscowMirCourtClient(CourtClient):
     """Клиент мировых судов Москвы. Все страницы считаем типом A (по умолчанию)."""
 
     page_type = "A"
+    portal = "mos-sud"
 
     def __init__(
         self,

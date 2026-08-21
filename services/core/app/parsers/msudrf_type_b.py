@@ -70,6 +70,7 @@ from app.parsers.msudrf_shared import (
     EVENT_NAME_HEADINGS,
     EVENT_PUBLISHED_HEADINGS,
     EVENT_RESULT_HEADINGS,
+    EVENT_TIME_HEADINGS,
     EVENTS_TABS,
     JUDGE_LABELS,
     PERSONS_TABS,
@@ -78,6 +79,7 @@ from app.parsers.msudrf_shared import (
     column_index,
     find_tab,
     parse_date,
+    parse_local_datetime,
     tab_bodies,
 )
 
@@ -126,6 +128,7 @@ def _parse_card(tab: Tag) -> tuple[dict, list[str]]:
 FALLBACK_EVENT_NAME_COL = 0
 FALLBACK_EVENT_RESULT_COL = 1
 FALLBACK_EVENT_DATE_COL = 2
+FALLBACK_EVENT_TIME_COL = 3
 FALLBACK_EVENT_PUBLISHED_COL = 5
 
 
@@ -136,8 +139,8 @@ def _cell(cells: list, index: int | None) -> str:
     return clean(cells[index].get_text())
 
 
-def _event_columns(table: Tag) -> tuple[int, int | None, int, int | None]:
-    """Номера колонок (наименование, результат, дата, дата размещения) по шапке таблицы.
+def _event_columns(table: Tag) -> tuple[int, int | None, int, int | None, int | None]:
+    """Номера колонок (наименование, результат, дата, время, дата размещения) по шапке.
 
     Шапка свёрстана через <td> внутри <thead> — <th> на этих страницах не бывает. Если
     шапки нет, возвращаем прежние фиксированные индексы.
@@ -148,6 +151,7 @@ def _event_columns(table: Tag) -> tuple[int, int | None, int, int | None]:
             FALLBACK_EVENT_NAME_COL,
             FALLBACK_EVENT_RESULT_COL,
             FALLBACK_EVENT_DATE_COL,
+            FALLBACK_EVENT_TIME_COL,
             FALLBACK_EVENT_PUBLISHED_COL,
         )
 
@@ -157,6 +161,9 @@ def _event_columns(table: Tag) -> tuple[int, int | None, int, int | None]:
         FALLBACK_EVENT_NAME_COL if name_col is None else name_col,
         column_index(headings, EVENT_RESULT_HEADINGS),
         FALLBACK_EVENT_DATE_COL if date_col is None else date_col,
+        # Время ищем ТОЛЬКО по шапке, без запасного номера: у страниц с шапкой порядок
+        # колонок непостоянен, и угаданный индекс подставил бы в время чужую колонку.
+        column_index(headings, EVENT_TIME_HEADINGS),
         column_index(headings, EVENT_PUBLISHED_HEADINGS),
     )
 
@@ -164,7 +171,7 @@ def _event_columns(table: Tag) -> tuple[int, int | None, int, int | None]:
 def _parse_events(tab: Tag) -> tuple[list[dict], str | None]:
     """Разобрать вкладку «ДВИЖЕНИЕ ДЕЛА» в (список событий, состояние дела).
 
-    Событие — {"event_date": date, "state_description": str, "document_str": None,
+    Событие — {"event_date": datetime, "state_description": str, "document_str": None,
     "published_at": date | None}. Строки без даты события пропускаем: дата входит в
     identity события, и без неё uid не посчитать. Состояние дела — наименование
     ПОСЛЕДНЕЙ строки таблицы, в том числе пропущенной: у только что заведённых дел даты
@@ -177,7 +184,7 @@ def _parse_events(tab: Tag) -> tuple[list[dict], str | None]:
     if table is None:
         return events, status
 
-    name_col, result_col, date_col, published_col = _event_columns(table)
+    name_col, result_col, date_col, time_col, published_col = _event_columns(table)
 
     for row in table.select("tbody tr"):
         cells = row.find_all("td")
@@ -197,7 +204,10 @@ def _parse_events(tab: Tag) -> tuple[list[dict], str | None]:
         # Состояние дела — наименование последней строки, поэтому перетираем на каждой.
         status = name
 
-        event_date = parse_date(cells[date_col].get_text())
+        # Время — местное для суда; колонка есть не всегда, тогда будет местная полночь.
+        event_date = parse_local_datetime(
+            cells[date_col].get_text(), _cell(cells, time_col)
+        )
         if event_date is None:
             continue  # без даты событие не может участвовать в детекте изменений
 

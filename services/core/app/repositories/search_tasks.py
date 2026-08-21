@@ -1,5 +1,5 @@
 """Доступ к задачам поиска/синхронизации (SearchTask) в БД."""
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -64,7 +64,7 @@ class SearchTaskRepository:
         """Задача пошла в работу: статус RUNNING, +1 попытка, отметка времени."""
         task.status = SearchStatus.RUNNING
         task.attempts += 1
-        task.last_attempt_at = datetime.utcnow()
+        task.last_attempt_at = datetime.now(timezone.utc)
 
     def mark_success(self, task: SearchTask, case_id: int) -> None:
         """Успех: статус SUCCESS, привязываем найденное дело."""

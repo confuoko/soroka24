@@ -12,7 +12,7 @@
   * case_mirsud_78MS0208-01-2026-002313-14.html — уголовное: одно событие
   * case_mirsud_78MS0056-01-2026-002523-68.html — материал «9у-»: номер с кириллицей
 """
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from bs4 import BeautifulSoup
@@ -134,7 +134,7 @@ def test_events_keep_the_portal_joined_description() -> None:
 
     assert len(events) == 5
     assert events[0] == {
-        "event_date": date(2026, 8, 14),
+        "event_date": datetime(2026, 8, 14, 10, 25),
         "state_description": "Регистрация поступившего заявления о выдаче судебного приказа",
         "document_str": None,
         "published_at": date(2026, 8, 10),
@@ -144,15 +144,26 @@ def test_events_keep_the_portal_joined_description() -> None:
     )
 
 
-def test_event_time_column_is_ignored() -> None:
-    """Колонка «Время события» есть на портале, но в событие не попадает.
+def test_event_time_is_read_into_the_event() -> None:
+    """Колонка «Время события» попадает в момент события, а не в соседнее поле.
 
-    У Event только event_date (Date); время в identity не входит. Проверяем, что оно
-    не уехало по ошибке в дату публикации — колонки соседние.
+    Колонки времени и даты публикации соседние, и раньше время не читалось вовсе. Тут
+    проверяем обе стороны: время доехало до event_date, а published_at осталось датой
+    публикации, а не сползло на колонку времени.
     """
-    for event in _parse(CIVIL)["events"]:
+    events = _parse(CIVIL)["events"]
+
+    assert [e["event_date"].strftime("%d.%m %H:%M") for e in events] == [
+        "14.08 10:25",
+        "14.08 10:31",
+        "21.08 10:31",
+        "21.08 10:31",
+        "21.08 10:31",
+    ]
+    for event in events:
         assert isinstance(event["published_at"], date)
-    assert _parse(CIVIL)["events"][0]["published_at"] == date(2026, 8, 10)
+        assert not isinstance(event["published_at"], datetime)
+    assert events[0]["published_at"] == date(2026, 8, 10)
 
 
 def test_events_without_a_date_are_skipped() -> None:
