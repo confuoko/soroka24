@@ -1,0 +1,678 @@
+"""Два входа в систему: УИД и ссылка на карточку дела.
+
+Зачем два. У порталов вроде mos-sud.ru есть поиск по УИД, а у msudrf.ru (6063 суда из
+72 регионов) его нет — там дело открывается только прямой ссылкой, и УИД становится
+известен лишь после похода на страницу. Проверяем, что вход выбирается правильно и что
+задача заводится тем ключом, который на этот момент действительно есть.
+"""
+import pytest
+
+from app.courts import (
+    MoscowClient,
+    MsudrfClient,
+    MsudrfClient,
+    UnsupportedCourt,
+    define_court_by_uid,
+    define_court_by_url,
+    find_uid,
+    is_supported_url,
+)
+from app.database import session_scope
+from app.models import Case, SearchStatus, SearchTask
+from app.repositories import CourtRepository, SearchTaskRepository
+from app.validators import (
+    host_variants,
+    is_synthetic_uid,
+    looks_like_url,
+    synthetic_uid,
+    validate_uid,
+    validate_url,
+)
+
+CASE_URL = (
+    "https://95.mo.msudrf.ru/modules.php?name=sud_delo&op=cs"
+    "&case_id=429386415&delo_id=1540005"
+)
+UID = "50MS0095-01-2026-002990-16"
+MOSCOW_UID = "77MS0466-01-2026-003751-93"
+
+
+# ------------------------------------------------------ что прислали: УИД или ссылка
+@pytest.mark.parametrize(
+    "value, is_url",
+    [
+        (CASE_URL, True),
+        ("http://1.bkr.msudrf.ru/modules.php?name=sud_delo", True),
+        (MOSCOW_UID, False),
+        (UID, False),
+        ("  " + CASE_URL + "  ", True),
+    ],
+)
+def test_url_is_told_apart_from_uid(value, is_url) -> None:
+    """Различаем по схеме адреса: у УИД её нет и быть не может."""
+    assert looks_like_url(value) is is_url
+
+
+def test_garbage_is_not_a_valid_url() -> None:
+    """«Похоже на ссылку» и «годная ссылка» — разные проверки."""
+    assert looks_like_url("https://") is True
+    assert validate_url("https://") is False
+
+
+# ------------------------------------------------------------------- резолвер судов
+def test_moscow_region_url_resolves_to_msudrf_client() -> None:
+    """Любой участок Московской области обслуживает один клиент — движок у них общий."""
+    for url in (CASE_URL, "http://148.mo.msudrf.ru/x", "https://235.mo.msudrf.ru/y"):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+
+
+def test_altai_krai_url_resolves_to_msudrf_client() -> None:
+    """Алтайский край — тот же движок и тот же клиент, только другой домен.
+
+    Поддомены там именные, а не по номеру участка (centr1, biysk1), поэтому проверяем
+    именно домен: разбирать имя участка из хоста нечем и не нужно.
+    """
+    for url in (
+        "https://centr1.alt.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1",
+        "http://biysk1.alt.msudrf.ru/x",
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+
+
+def test_altai_republic_and_krai_are_separate_domains() -> None:
+    """Республика Алтай (*.ralt) и Алтайский край (*.alt) — РАЗНЫЕ регионы движка.
+
+    Подключены оба, поэтому перепутать их теперь не «обидно», а опасно: у края 143 суда с
+    кодом 22MS, у республики 14 с кодом 02MS, и дело привязалось бы к чужому суду. Держится
+    различие на одной точке в define_court_by_url: без неё endswith("alt.msudrf.ru")
+    накрывает и республику.
+
+    Границу проверяем на ВЫДУМАННОМ домене: реальных вторых уровней, кончающихся на
+    "alt.msudrf.ru", на движке ровно два — alt и ralt, оба подключены, и отрицательного
+    примера из живых регионов взять негде. Если бы сравнение шло без точки, *.qalt тоже
+    прошёл бы за Алтайский край.
+    """
+    for url in (
+        "https://galtms1.ralt.msudrf.ru/case",
+        "http://ulagan.ralt.msudrf.ru/x",
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+
+    assert is_supported_url("https://1.qalt.msudrf.ru/case") is False
+
+    with pytest.raises(UnsupportedCourt):
+        define_court_by_url("https://1.qalt.msudrf.ru/case")
+
+
+def test_amur_oblast_url_resolves_to_msudrf_client() -> None:
+    """Амурская область — третий подключённый регион движка, поддомены тоже именные."""
+    for url in (
+        "https://arhr.amr.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1",
+        "http://bel1.amr.msudrf.ru/x",
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+
+
+def test_arkhangelsk_url_resolves_to_msudrf_client() -> None:
+    """Архангельская область — и вместе с ней Ненецкий АО: портал у них общий.
+
+    Округ входит в область административно, поэтому его три суда сидят на том же домене
+    с теми же кодами 29MS. Проверяем оба случая: отдельной строки в COURT_BY_DOMAIN у
+    округа нет и быть не должно.
+    """
+    for url in (
+        "https://1vel.arh.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1",
+        "http://1nao.arh.msudrf.ru/x",  # Ненецкий АО, 29MS0070
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+
+
+def test_astrakhan_url_resolves_to_msudrf_client() -> None:
+    """Астраханская область — пятый домен движка."""
+    for url in (
+        "https://kir1.ast.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1",
+        "http://chrn1.ast.msudrf.ru/x",
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+
+
+def test_belgorod_url_resolves_to_msudrf_client() -> None:
+    """Белгородская область — шестой домен движка."""
+    for url in (
+        "https://alex1.blg.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1",
+        "http://belgr2.blg.msudrf.ru/x",
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+
+
+def test_volgograd_and_vologda_urls_resolve_to_msudrf_client() -> None:
+    """Волгоградская и Вологодская области — соседние домены, различаются одной буквой.
+
+    Проверяем обе разом: vol/vld легко перепутать при добавлении, а рядом живёт ещё и
+    Владимирская область на wld.msudrf.ru, которую мы не подключали.
+    """
+    for url in ("https://1.vol.msudrf.ru/x", "https://146.vol.msudrf.ru/x"):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+    for url in ("https://1.vld.msudrf.ru/x", "https://68.vld.msudrf.ru/x"):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+
+    assert is_supported_url("https://1.wld.msudrf.ru/x") is False
+
+
+def test_voronezh_url_resolves_to_msudrf_client() -> None:
+    """Воронежская область — девятый домен движка, поддомены именные."""
+    for url in ("https://zhelezn1.vrn.msudrf.ru/x", "http://zhelezn4.vrn.msudrf.ru/y"):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+
+
+def test_sakha_url_resolves_to_msudrf_client() -> None:
+    """Республика Саха (Якутия) — 63 суда, поддомены sakhaN.
+
+    Регион подключён, хотя у архивных дел портала УИД на карточке нет вовсе: такие
+    карточки сохраняются под самодельным ключом от ссылки (synthetic_uid). До этого
+    единственным препятствием к подключению региона было именно отсутствие УИД.
+    """
+    for url in ("https://sakha45.yak.msudrf.ru/modules.php?name=sud_delo", "http://sakha1.yak.msudrf.ru/y"):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+
+
+def test_oryol_url_resolves_to_msudrf_client() -> None:
+    """Орловская область — 48 судов, поддомены словесные, разметка типа B.
+
+    Именно на её карточках выяснилось, что порядок колонок «Движения дела» у движка
+    непостоянен, — см. регресс в tests/test_msudrf_type_b_parser.py.
+    """
+    for url in ("https://bolh.orl.msudrf.ru/modules.php?name=sud_delo", "http://3sev.orl.msudrf.ru/y"):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+
+
+def test_second_layout_regions_use_the_same_client() -> None:
+    """Пермский край и Адыгея отдают ВТОРУЮ вёрстку движка — и тем же самым клиентом.
+
+    Раньше под них был отдельный класс клиента, и он состоял целиком из строки
+    page_type = "C". Ходить на портал там нечем отличаться, поэтому клиент один, а
+    вёрстку определяет сама страница.
+
+    Что эти регионы действительно отдают вёрстку C — проверяется на их живых карточках
+    в tests/test_parser_choice.py.
+    """
+    for url in (
+        "https://96.perm.msudrf.ru/x",
+        "https://maikop1.adg.msudrf.ru/y",
+        "https://adg1.adg.msudrf.ru/z",
+    ):
+        assert isinstance(define_court_by_url(url), MsudrfClient)
+
+
+def test_perm_krai_and_primorsky_krai_are_separate_domains() -> None:
+    """perm.msudrf.ru и prm.msudrf.ru — РАЗНЫЕ регионы, и путать их нельзя.
+
+    Пермский край (146 судов, код 59MS) и Приморский край (109 судов, код 25MS)
+    отличаются одной буквой в домене, и у обоих числовые поддомены. Сверка подстрокой
+    привязала бы дело к чужому суду в другом регионе — и это хуже, чем отказ. Вторая
+    такая пара после Алтая (см. тест выше).
+
+    Раньше здесь сравнивались КЛАССЫ клиентов: у Пермского края был свой, потому что у
+    него вторая вёрстка. Теперь клиент у обоих один, и проверять надо то, что и было
+    важно на самом деле, — что дело привяжется к суду СВОЕГО региона.
+    """
+    with session_scope() as session:
+        courts = CourtRepository(session)
+        perm = courts.get_by_url("https://96.perm.msudrf.ru/x")
+        primorsky = courts.get_by_url("https://96.prm.msudrf.ru/x")
+        perm_code = perm.code if perm else None
+        primorsky_code = primorsky.code if primorsky else None
+
+    if perm_code is None or primorsky_code is None:
+        pytest.skip("справочник судов не залит")
+
+    assert perm_code.startswith("59MS")
+    assert primorsky_code.startswith("25MS")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://abakan1.hak.msudrf.ru/x",  # Республика Хакасия, 35 судов
+        "https://okt6.ros.msudrf.ru/x",  # Ростовская область, 230 судов
+        "https://6.sam.msudrf.ru/x",  # Самарская область, 162 суда
+        "https://10.sah.msudrf.ru/x",  # Сахалинская область, 33 суда
+        "https://41.sml.msudrf.ru/x",  # Смоленская область, 56 судов
+        "https://bond.tmb.msudrf.ru/x",  # Тамбовская область, 60 судов
+        "https://kizil1.tuva.msudrf.ru/x",  # Республика Тыва, 26 судов
+        "https://57.riz.msudrf.ru/x",  # Рязанская область, 70 судов
+        "https://1.sar.msudrf.ru/x",  # Саратовская область, 134 суда
+        "https://1vis.svd.msudrf.ru/x",  # Свердловская область, 219 судов
+        "https://26.twr.msudrf.ru/x",  # Тверская область, 83 суда
+        "https://asi1.tms.msudrf.ru/x",  # Томская область, 56 судов
+        "https://74.tula.msudrf.ru/x",  # Тульская область, 83 суда
+        "https://abatsk.tyum.msudrf.ru/x",  # Тюменская область, 74 суда на движке
+        "https://indmir1.udm.msudrf.ru/x",  # Удмуртская Республика, 85 судов
+        "https://1zasvrn.uln.msudrf.ru/x",  # Ульяновская область, 71 суд
+        "https://29.hbr.msudrf.ru/x",  # Хабаровский край, 75 судов
+        "https://alat1.chv.msudrf.ru/x",  # Чувашская Республика, 68 судов
+        "https://anadyr-r.chao.msudrf.ru/x",  # Чукотский АО, 4 суда
+        "https://2dzr.jrs.msudrf.ru/x",  # Ярославская область, 70 судов
+        "https://sovchel2.chel.msudrf.ru/x",  # Челябинская область, 183 суда
+    ],
+)
+def test_every_wired_region_resolves_to_a_client(url: str) -> None:
+    """Каждый подключённый регион движка резолвится в клиент, и клиент этот один.
+
+    Раньше здесь проверялась ещё и ОЖИДАЕМАЯ вёрстка региона: домен отображался в класс,
+    класс несёл page_type, по нему выбирался парсер. Теперь ожидания вёрстки нет вовсе —
+    её определяет сама страница (detect_page_type), и для региона, подключённого вслепую,
+    выдумывать ожидание не нужно.
+
+    Осталась половина, которая по-прежнему может сломаться молча: регион выпал из
+    COURT_BY_DOMAIN, и его дела перестали заводиться совсем. Какую вёрстку регионы реально
+    отдают — на живых карточках в tests/test_parser_choice.py.
+    """
+    assert isinstance(define_court_by_url(url), MsudrfClient)
+
+
+def test_participok_label_may_be_glued_to_the_region_domain() -> None:
+    """26twr.msudrf.ru — тот же суд, что 26.twr.msudrf.ru: написание метки участка не важно.
+
+    Так записан 69MS0045 в справочнике, и портал отвечает по обоим именам (одинаковый IP).
+    Раньше склеенный адрес не проходил сверку по границе имени, и этот суд был недоступен
+    по любой ссылке.
+    """
+    for url in (
+        "https://26.twr.msudrf.ru/modules.php?name=sud_delo",
+        "https://26twr.msudrf.ru/modules.php?name=sud_delo",
+        "https://26-twr.msudrf.ru/modules.php?name=sud_delo",
+    ):
+        assert is_supported_url(url) is True
+
+
+def test_variants_do_not_break_the_domain_boundary_guard() -> None:
+    """Перебор написаний хоста НЕ должен открывать дорогу подменам.
+
+    Это главный риск затеи: «склеенный» вариант в первую очередь склеил бы разные регионы.
+    Перебор поэтому идёт ВТОРЫМ проходом, после точной сверки, а дефисный вариант требует
+    номера участка слева от дефиса — иначе «evil-mo.msudrf.ru» разворачивался бы в
+    «evil.mo.msudrf.ru» и проходил как Московская область.
+    """
+    assert is_supported_url("https://evil-mo.msudrf.ru/case") is False
+    assert is_supported_url("https://msudrf.ru.evil.com/case") is False
+    # Республика Алтай (02MS) и Алтайский край (22MS) остаются разными регионами.
+    assert host_variants("ralt.msudrf.ru") == ["ralt.msudrf.ru"]
+    assert isinstance(define_court_by_url("https://galtms1.ralt.msudrf.ru/x"), MsudrfClient)
+
+
+def test_other_regions_on_the_same_engine_are_not_served_yet() -> None:
+    """Тот же движок в чужом регионе пока не обслуживаем.
+
+    Движок общий для 72 регионов, но разметку мы смотрели только на части из них (список —
+    в COURT_BY_DOMAIN), поэтому обещать остальные 2618 судов, ни разу их не открыв, нельзя.
+    Подключается регион одной строкой в COURT_BY_DOMAIN — когда его разметку проверят.
+    """
+    # Новосибирская область — самый большой из неподключённых регионов движка (138 судов),
+    # Брянская — регион со второй вёрсткой карточки, куда пока не ходили (76 судов).
+    # Здесь по очереди стояли Адыгея, Ростовская и Челябинская области — все теперь
+    # подключены. Неподключённых доменов движка осталось 8, судов в них 460.
+    for url in ("http://1.nsk.msudrf.ru/x", "https://12.brj.msudrf.ru/y"):
+        assert is_supported_url(url) is False
+        with pytest.raises(UnsupportedCourt):
+            define_court_by_url(url)
+
+
+def test_domain_boundary_is_respected_for_the_region() -> None:
+    """«evil-mo.msudrf.ru» — не Московская область: сравниваем по границе имени.
+
+    Без проверки границы дефис перед «mo» проскочил бы, и браузер (через прокси и с
+    игнором сертификата) пошёл бы на чужой хост.
+    """
+    assert is_supported_url("https://evil-mo.msudrf.ru/case") is False
+
+
+def test_lookalike_domain_is_rejected() -> None:
+    """msudrf.ru.evil.com — чужой хост. Сравниваем по границе имени, а не подстрокой.
+
+    Иначе по такой ссылке браузер (да ещё через прокси и с игнором сертификата)
+    пошёл бы куда угодно.
+    """
+    assert is_supported_url("https://msudrf.ru.evil.com/case") is False
+
+    with pytest.raises(UnsupportedCourt):
+        define_court_by_url("https://msudrf.ru.evil.com/case")
+
+
+def test_unknown_portal_is_rejected() -> None:
+    """Портал, который мы не умеем открывать, отсекаем до создания задачи."""
+    assert is_supported_url("https://mirsud24.ru/case/1") is False
+
+
+def test_spb_portal_is_supported_though_parsing_is_not_written() -> None:
+    """Петербург подключён НАМЕРЕННО, хотя разбор его страниц ещё не написан.
+
+    Так дело можно завести через API, дойти до портала и получить снимок страницы в S3
+    (снимок снимается до разбора) — ради накопления образцов. Падает такая задача уже
+    на разборе. Для Брянска решение обратное: тип C доменов не получил, чтобы не тратить
+    прокси и капчу впустую, — а на mirsud.spb.ru капчи нет и поход бесплатный.
+    """
+    from app.courts.spb import SpbClient
+
+    url = "https://mirsud.spb.ru/cases/detail/98/?id=2-2983%2F2026-98"
+
+    assert is_supported_url(url) is True
+    assert isinstance(define_court_by_url(url), SpbClient)
+
+
+def test_uid_resolves_only_for_portals_with_search() -> None:
+    """По УИД ищем только там, где у портала есть поиск по нему.
+
+    Для 50MS резолвер по УИД отказывает намеренно: на msudrf.ru поиска нет, такое дело
+    можно завести только ссылкой.
+    """
+    assert isinstance(define_court_by_uid(MOSCOW_UID), MoscowClient)
+
+    with pytest.raises(UnsupportedCourt):
+        define_court_by_uid(UID)
+
+
+# ------------------------------------------------------------- поиск УИД на странице
+def test_uid_is_found_in_page_text() -> None:
+    """Формат УИД общероссийский, поэтому поиск один на все порталы."""
+    assert find_uid(f"<td>Уникальный идентификатор дела</td><td>{UID}</td>") == UID
+    assert find_uid("<html>ничего похожего</html>") is None
+
+
+def test_synthetic_uid_is_one_per_case_and_not_a_real_uid() -> None:
+    """Самодельный ключ карточки: одинаков для всех видов одной ссылки и не похож на УИД.
+
+    Считается от канонической формы адреса, поэтому http/https, переставленные параметры
+    и лишний хвост дают ОДИН ключ — иначе одна карточка размножилась бы в базе. И он
+    заведомо не проходит формат УИД: по значению видно, что портал УИД не присваивал.
+    """
+    same = {
+        synthetic_uid("14MS0054", "https://sakha45.yak.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1300565&delo_id=1540005"),
+        synthetic_uid("14MS0054", "http://sakha45.yak.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1300565&delo_id=1540005"),
+        synthetic_uid("14MS0054", "https://sakha45.yak.msudrf.ru/modules.php?delo_id=1540005&case_id=1300565&op=cs&name=sud_delo&utm_source=mail"),
+    }
+    assert len(same) == 1
+
+    key = same.pop()
+    assert key.startswith("nouid-14MS0054-")
+    assert is_synthetic_uid(key)
+    assert validate_uid(key) is False
+    # Другое дело того же участка — другой ключ.
+    assert key != synthetic_uid(
+        "14MS0054",
+        "https://sakha45.yak.msudrf.ru/modules.php?name=sud_delo&op=cs&case_id=1300566&delo_id=1540005",
+    )
+
+
+# ------------------------------------------------------------------ задача по ссылке
+def test_task_can_be_created_without_uid(session) -> None:
+    """Задачу по ссылке заводим без УИД: на этот момент его ещё неоткуда взять."""
+    task = SearchTaskRepository(session).create(source_url=CASE_URL)
+
+    assert task.uid is None
+    assert task.source_url == CASE_URL
+    assert task.status is SearchStatus.PENDING
+
+
+def test_task_needs_at_least_one_key(session) -> None:
+    """Задача без УИД и без ссылки бессмысленна — по ней нечего открывать."""
+    with pytest.raises(ValueError):
+        SearchTaskRepository(session).create()
+
+
+def test_uid_is_written_back_after_fetch(session) -> None:
+    """Найденный на странице УИД дописывается в задачу — он нужен для привязки суда."""
+    repo = SearchTaskRepository(session)
+    task = repo.create(source_url=CASE_URL)
+
+    repo.set_uid(task, UID)
+    session.flush()
+
+    assert session.get(SearchTask, task.id).uid == UID
+
+
+def test_active_task_is_found_by_url(session) -> None:
+    """Дедупликация по ссылке: второй такой же запрос не должен плодить задачи."""
+    repo = SearchTaskRepository(session)
+    task = repo.create(source_url=CASE_URL)
+
+    assert repo.get_active_by_url(CASE_URL).id == task.id
+    assert repo.get_active_by_url("https://95.mo.msudrf.ru/other") is None
+
+
+def test_finished_task_does_not_block_new_one(session, court) -> None:
+    """Завершённая задача дедупликацию не держит — дело можно перепарсить.
+
+    Дело завести приходится по-настоящему: SearchTask.case_id — внешний ключ. В старом
+    core тест ставил case_id=1 и падал на этом ключе в любой базе, где строки с таким id
+    нет; это и был единственный красный тест набора.
+    """
+    case = Case(uid=UID, court=court, code="02-0001/2026")
+    session.add(case)
+    session.flush()
+
+    repo = SearchTaskRepository(session)
+    task = repo.create(source_url=CASE_URL)
+    repo.mark_success(task, case_id=case.id)
+    session.flush()
+
+    assert repo.get_active_by_url(CASE_URL) is None
+
+
+# ------------------------------------------- подсказка, когда по УИД искать нельзя
+def _stub_courts(monkeypatch, court):
+    """Подменить справочник судов: тест не должен зависеть от содержимого таблицы."""
+    from types import SimpleNamespace
+
+    from app.api import search_case as routes
+
+    monkeypatch.setattr(
+        routes,
+        "CourtRepository",
+        lambda session: SimpleNamespace(get_by_code=lambda code: court),
+    )
+    return routes
+
+
+def test_known_court_asks_for_a_link(monkeypatch) -> None:
+    """Суд определился, но по УИД не ищется → говорим какой это суд и что прислать.
+
+    Без этого ответ выглядел бы как «суд не поддержан», хотя дело прекрасно
+    достаётся ссылкой — пользователь просто не знает, что нужна именно она.
+    """
+    from types import SimpleNamespace
+
+    routes = _stub_courts(monkeypatch, SimpleNamespace(name="Судебный участок № 95"))
+
+    answer = routes._explain_uid_not_searchable(UID)
+
+    assert answer.status == "link_required"
+    assert "Судебный участок № 95" in answer.message
+    assert "msudrf.ru/modules.php" in answer.message
+
+
+def test_unknown_court_says_so(monkeypatch) -> None:
+    """Кода нет в справочнике — тут ссылка не поможет, и предлагать её незачем."""
+    routes = _stub_courts(monkeypatch, None)
+
+    answer = routes._explain_uid_not_searchable("99XX9999-01-2026-000001-11")
+
+    assert answer.status == "unsupported_court"
+    assert "99XX9999" in answer.message
+
+
+# --------------------------------------------- по одному УИД карточек может быть много
+def _stub_uid_branch(monkeypatch, cards, active_task=None):
+    """Подменить БД для ветки по УИД. Возвращает (routes, список созданных задач)."""
+    from types import SimpleNamespace
+
+    from app.api import search_case as routes
+
+    created = []
+    monkeypatch.setattr(
+        routes,
+        "CaseRepository",
+        lambda session: SimpleNamespace(list_by_uid=lambda uid: cards),
+    )
+    monkeypatch.setattr(
+        routes,
+        "SearchTaskRepository",
+        lambda session: SimpleNamespace(
+            get_active_by_uid=lambda uid: active_task,
+            create=lambda **kw: created.append(kw) or SimpleNamespace(id=777),
+        ),
+    )
+    # В очередь в тестах не ставим: Celery здесь не нужен.
+    monkeypatch.setattr(routes.run_search_task, "apply_async", lambda *a, **kw: None)
+    return routes, created
+
+
+def test_search_is_started_even_when_cases_are_already_found(monkeypatch) -> None:
+    """Дело уже в БД → всё равно ставим поиск, а найденное отдаём вместе с task_id.
+
+    УИД сквозной, поэтому найденные карточки могли прийти ссылками со страниц других
+    инстанций — московской среди них может не быть вовсе. А если есть, рядом могло
+    появиться ещё одно производство: портал показывает их одной таблицей.
+    """
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from fastapi import Response
+
+    cards = [
+        SimpleNamespace(id=11, updated_at=datetime(2026, 8, 1)),
+        SimpleNamespace(id=12, updated_at=datetime(2026, 8, 5)),
+    ]
+    routes, created = _stub_uid_branch(monkeypatch, cards)
+
+    answer = routes._sync_by_uid(MOSCOW_UID, force=False, response=Response())
+
+    assert answer.status == "processing"
+    assert answer.task_id == 777
+    assert created == [{"uid": MOSCOW_UID}]  # поиск заведён, несмотря на находки
+    # Отдаём ВСЕ найденные карточки; case_id — самая свежая, ради совместимости.
+    assert answer.case_ids == [11, 12]
+    assert answer.case_id == 12
+
+
+def test_nothing_found_still_returns_a_task(monkeypatch) -> None:
+    """Дела в БД нет → обычный ответ с задачей и пустыми ссылками на карточки."""
+    from fastapi import Response
+
+    routes, created = _stub_uid_branch(monkeypatch, cards=[])
+
+    answer = routes._sync_by_uid(MOSCOW_UID, force=False, response=Response())
+
+    assert answer.status == "processing"
+    assert answer.case_ids is None
+    assert answer.case_id is None
+    assert created == [{"uid": MOSCOW_UID}]
+
+
+def test_active_task_is_not_duplicated_but_still_reports_cases(monkeypatch) -> None:
+    """По этому УИД уже идёт задача → отдаём её, второй не заводим, карточки показываем."""
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from fastapi import Response
+
+    cards = [SimpleNamespace(id=11, updated_at=datetime(2026, 8, 1))]
+    routes, created = _stub_uid_branch(
+        monkeypatch, cards, active_task=SimpleNamespace(id=555)
+    )
+
+    answer = routes._sync_by_uid(MOSCOW_UID, force=False, response=Response())
+
+    assert answer.task_id == 555
+    assert created == []
+    assert answer.case_ids == [11]
+
+
+def _no_tasks(monkeypatch, routes) -> None:
+    """Задача в этом тесте заводиться не должна — поймаем, если всё же заведётся."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        routes,
+        "SearchTaskRepository",
+        lambda session: SimpleNamespace(
+            create=lambda **kw: pytest.fail("задачу заводить не должны")
+        ),
+    )
+
+
+def test_unknown_court_is_rejected_before_checking_the_portal(monkeypatch) -> None:
+    """Суда с таким сайтом нет в справочнике → отказ сразу, задачу не заводим.
+
+    Справочник проверяется ПЕРВЫМ: если суда нет, неважно, умеем ли мы работать с его
+    порталом — карточку всё равно не к чему привязать. Поэтому даже для поддержанного
+    msudrf.ru ответ здесь про справочник, а не про портал.
+    """
+    from types import SimpleNamespace
+
+    from fastapi import Response
+
+    from app.api import search_case as routes
+
+    monkeypatch.setattr(
+        routes,
+        "CourtRepository",
+        lambda session: SimpleNamespace(get_by_url=lambda url: None),
+    )
+    monkeypatch.setattr(
+        routes, "is_supported_url", lambda url: pytest.fail("портал проверять рано")
+    )
+    _no_tasks(monkeypatch, routes)
+
+    answer = routes._sync_by_url(CASE_URL, force=False, response=Response())
+
+    assert answer.status == "unsupported_court"
+    assert "нет в справочнике" in answer.message
+    assert "95.mo.msudrf.ru" in answer.message
+
+
+def test_known_court_on_unsupported_portal_is_named(monkeypatch) -> None:
+    """Суд нашёлся, а клиента к его порталу нет → называем суд по имени.
+
+    В справочнике 85 регионов со своими порталами, а клиент пока только к движку
+    msudrf.ru. Без имени суда ответ выглядел бы как «мы вас не знаем», хотя суд-то
+    известен — не поддержан именно его сайт.
+    """
+    from types import SimpleNamespace
+
+    from fastapi import Response
+
+    from app.api import search_case as routes
+
+    monkeypatch.setattr(
+        routes,
+        "CourtRepository",
+        lambda session: SimpleNamespace(
+            get_by_url=lambda url: SimpleNamespace(name="Судебный участок № 154")
+        ),
+    )
+    monkeypatch.setattr(routes, "is_supported_url", lambda url: False)
+    _no_tasks(monkeypatch, routes)
+
+    # Портал взят заведомо неподдержанный: mirsud.spb.ru здесь уже не годится — его
+    # подключили ради сбора образцов страниц.
+    answer = routes._sync_by_url(
+        "https://mirsud24.ru/case/1", force=False, response=Response()
+    )
+
+    assert answer.status == "unsupported_court"
+    assert "Судебный участок № 154" in answer.message
+    assert "mirsud24.ru" in answer.message
+
+
+def test_example_link_is_a_real_case_url() -> None:
+    """Пример должен быть настоящим адресом карточки, а не выдумкой.
+
+    Его показывают пользователю как образец, поэтому он обязан разбираться нашим же
+    резолвером — иначе мы советуем прислать то, что сами не примем.
+    """
+    from app.courts.msudrf import CASE_URL_EXAMPLE
+
+    assert validate_url(CASE_URL_EXAMPLE)
+    assert is_supported_url(CASE_URL_EXAMPLE)
+    assert looks_like_url(CASE_URL_EXAMPLE)

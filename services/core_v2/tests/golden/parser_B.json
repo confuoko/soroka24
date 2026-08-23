@@ -1,0 +1,2947 @@
+{
+  "after_search_page.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": null
+  },
+  "case_0203_42MS0007-01-2026-002120-21.html": {
+    "category": "Споры, возникающие из семейных правоотношений О расторжении брака супругов - имеющих детей",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-07T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-11"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о подготовке дела к судебному разбирательству"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-19T11:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-11"
+        },
+        "state_description": "Подготовка дела (Собеседование)"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Андреева Наталья Викторовна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Подготовка дела (Собеседование)"
+  },
+  "case_10_nouid-65MS0010-33a3e9527ac3.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-17T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-17"
+        },
+        "state_description": "Окончание производства/Сдача в архив"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-07-17"
+    },
+    "first_instance_decision": "Определение об отказе в принятии",
+    "judge_names": [
+      "Филиппова Оксана Викторовна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-16"
+    },
+    "sides": [
+      {
+        "full_name": "ООО МКК \"ДоброЗайм Быстрое решение\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Птушкина Нина Сергеевна",
+        "role": "Должник"
+      }
+    ],
+    "status": "Окончание производства/Сдача в архив"
+  },
+  "case_10_nouid-65MS0010-acff1afa18c2.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-17T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-17"
+        },
+        "state_description": "Передача по подсудности"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-07-17"
+    },
+    "first_instance_decision": "Определение о передаче протокола об АП и других материалов дела на рассмотрение по подсудности",
+    "judge_names": [
+      "Филиппова Оксана Викторовна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-16"
+    },
+    "sides": [
+      {
+        "full_name": "Чепухов Вячеслав Александрович",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Передача по подсудности"
+  },
+  "case_10_nouid-65MS0010-d2578eb59a5f.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-25T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-17"
+        },
+        "state_description": "Окончание производства"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-07-14"
+    },
+    "first_instance_decision": "Определение о возвращении заявления о вынесении судебного приказа",
+    "judge_names": [
+      "Филиппова Оксана Викторовна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-10"
+    },
+    "sides": [
+      {
+        "full_name": "Общество с ограниченной ответственностью \"Управа\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Соколов Сергей Евгеньевич",
+        "role": "Должник"
+      }
+    ],
+    "status": "Окончание производства"
+  },
+  "case_1_nouid-67MS0001-418a046b6977.html": {
+    "category": "Споры, связанные с имущественными правами Иски о взыскании сумм по договору займа, кредитному договору",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-20T00:00:00"
+        },
+        "published_at": null,
+        "state_description": "Регистрация судебного приказа"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-07-20"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Конопелькина Наталья Сергеевна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-06"
+    },
+    "sides": [
+      {
+        "full_name": "ООО \"Региональная Служба Взыскания\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Орлов Алексей Владимирович",
+        "role": "Должник"
+      }
+    ],
+    "status": "Регистрация судебного приказа"
+  },
+  "case_1_nouid-67MS0001-b683199a2c78.html": {
+    "category": "Споры, связанные с имущественными правами Иски о взыскании сумм по договору займа, кредитному договору",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-22T00:00:00"
+        },
+        "published_at": null,
+        "state_description": "Регистрация судебного приказа"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-07-22"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Конопелькина Наталья Сергеевна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-08"
+    },
+    "sides": [
+      {
+        "full_name": "ООО УК \"Мой Смоленск\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Дубровский Иван Михайлович",
+        "role": "Должник"
+      }
+    ],
+    "status": "Регистрация судебного приказа"
+  },
+  "case_1_nouid-71MS0001-05d3297f53b1.html": {
+    "category": "Споры, связанные с имущественными правами Иски по спорам о взыскании сумм по кредитному договору",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-30T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-30"
+        },
+        "state_description": "Регистрация судебного приказа"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-07-30"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Горлова Ольга Игоревна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-29"
+    },
+    "sides": [
+      {
+        "full_name": "ООО МКК \"Срочноденьги\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Калинин Вячеслав Станиславович",
+        "role": "Должник"
+      }
+    ],
+    "status": "Обращение к исполнению"
+  },
+  "case_1_nouid-71MS0001-89558a67f442.html": {
+    "category": "Споры, возникающие из семейных правоотношений О взыскании алиментов на содержание несовершеннолетних детей",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-04T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-04"
+        },
+        "state_description": "Регистрация судебного приказа - Принято решение: Определение об отмене судебного приказа"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-17T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-18"
+        },
+        "state_description": "Определение об отмене судебного приказа"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-17T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-18"
+        },
+        "state_description": "Окончание производства"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-17T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-18"
+        },
+        "state_description": "Сдача в архив"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-08-04"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Осотов Дмитрий Валентинович"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-08-03"
+    },
+    "sides": [],
+    "status": "Сдача в архив"
+  },
+  "case_1sov_68MS0052-01-2026-004345-11.html": {
+    "category": "Прочие исковые дела Иные исковые дела",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-24T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-11"
+        },
+        "state_description": "Оставление без движения - Принято решение: Определение о принятии к производству"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-10T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-11"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о подготовке дела к судебному разбирательству"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-20T10:45:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-13"
+        },
+        "state_description": "Подготовка дела (Собеседование)"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Дмитриева Евгения Михайловна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "Щеголев Сергей Николаевич",
+        "role": "Материальный истец"
+      },
+      {
+        "full_name": "ООО \"Санаторно-курортный коплекс Голубой залив\"",
+        "role": "Ответчик"
+      }
+    ],
+    "status": "Подготовка дела (Собеседование)"
+  },
+  "case_1zasvrn_73MS0001-01-2026-002276-66.html": {
+    "category": "Споры, возникающие из семейных правоотношений О расторжении брака супругов - имеющих детей",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-17T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-28"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о назначении дела к разбирательству в судебном заседании"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-28"
+        },
+        "state_description": "Судебное заседание"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Головина Людмила Николаевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Судебное заседание"
+  },
+  "case_1zasvrn_73MS0001-01-2026-002374-63.html": {
+    "category": "Споры, связанные с жилищными отношениями О взыскании платы за жилую площадь и коммунальные платежи, тепло и электроэнергию",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-23T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-28"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о назначении дела к разбирательству в судебном заседании"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-10T10:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-28"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Неявка ответчика"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T09:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-11"
+        },
+        "state_description": "Судебное заседание"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Головина Людмила Николаевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "ПАО \"Т Плюс\"",
+        "role": "Материальный истец"
+      },
+      {
+        "full_name": "Неклюдова Татьяна Михайловна",
+        "role": "Ответчик"
+      },
+      {
+        "full_name": "Крупочкин Артём Дмитриевич",
+        "role": "Ответчик"
+      }
+    ],
+    "status": "Судебное заседание"
+  },
+  "case_26_nouid-65MS0026-d42f1fecf91c.html": {
+    "category": "Споры, возникающие из семейных правоотношений О расторжении брака супругов - имеющих детей",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-05-12T09:50:00"
+        },
+        "published_at": {
+          "__date__": "2026-04-14"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Предоставление срока для примирения супругов"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-04-13T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-04-14"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о назначении дела к разбирательству в судебном заседании"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-13T09:50:00"
+        },
+        "published_at": {
+          "__date__": "2026-05-12"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Иные причины"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-18"
+        },
+        "state_description": "Прекращение производства"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-18"
+        },
+        "state_description": "Судебное заседание - Принято решение: Определение о прекращении производства"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-08-18"
+    },
+    "first_instance_decision": "Дело прекращено",
+    "judge_names": [
+      "Халин Владимир Андреевич"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-04-09"
+    },
+    "sides": [],
+    "status": "Судебное заседание"
+  },
+  "case_29_nouid-27MS0029-4b6bf2399248.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-11"
+        },
+        "state_description": "Рассмотрение материала"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Куниловская Наталья Андреевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "ООО ПКО \"РСВ\"",
+        "role": "Заявитель"
+      },
+      {
+        "full_name": "Анфиногенов Евгений Алексеевич",
+        "role": "Должник"
+      }
+    ],
+    "status": "Рассмотрение материала"
+  },
+  "case_29_nouid-27MS0029-92e606a893fe.html": {
+    "category": "Споры, возникающие из семейных правоотношений О расторжении брака супругов - бездетных или имеющих взрослых детей",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-03T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-04"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о подготовке дела к судебному разбирательству"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T12:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-04"
+        },
+        "state_description": "Подготовка дела (Собеседование)"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Плотникова Елена Владимировна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-27"
+    },
+    "sides": [],
+    "status": "Подготовка дела (Собеседование)"
+  },
+  "case_29_nouid-27MS0029-99231bb7bdb9.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-28"
+        },
+        "state_description": "Рассмотрение дела"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Плотникова Елена Владимировна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-27"
+    },
+    "sides": [
+      {
+        "full_name": "Гульев Геннадий Геннадьевич",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Рассмотрение дела"
+  },
+  "case_2dzr_76MS0024-01-2026-000215-08.html": {
+    "category": "Споры, связанные с жилищными отношениями О взыскании платы за жилую площадь и коммунальные платежи, тепло и электроэнергию",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-19T10:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-14"
+        },
+        "state_description": "Судебное заседание"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-22T11:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-14"
+        },
+        "state_description": "Подготовка дела (Собеседование) - Принято решение: Определение о назначении дела к разбирательству в судебном заседании"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-22T11:10:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-14"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Иные причины"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-04-28T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-05-23"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о подготовке дела к судебному разбирательству"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Степанова Оксана Олеговна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-04-22"
+    },
+    "sides": [
+      {
+        "full_name": "ПАО \"ТГК- 2\"",
+        "role": "Материальный истец"
+      },
+      {
+        "full_name": "Чайковский Юрий Юрьевич",
+        "role": "Ответчик"
+      },
+      {
+        "full_name": "Трунилов Сергей Владимирович",
+        "role": "Ответчик"
+      },
+      {
+        "full_name": "Трунилова Татьяна Алексеевна",
+        "role": "Ответчик"
+      }
+    ],
+    "status": "Подготовка к судебному разбирательству"
+  },
+  "case_3sev_nouid-57MS0035-faca1208385d.html": {
+    "category": "Споры, возникающие из семейных правоотношений О расторжении брака супругов - имеющих детей",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-16T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-20"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о назначении дела к разбирательству в судебном заседании"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-20"
+        },
+        "state_description": "Судебное заседание"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Хворостянова Кристина Зауриевна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-16"
+    },
+    "sides": [],
+    "status": "Судебное заседание"
+  },
+  "case_41_nouid-67MS0045-6873f45e5b46.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:00:00"
+        },
+        "published_at": null,
+        "state_description": "Рассмотрение дела"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Федоров Роман Валерьевич"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-21"
+    },
+    "sides": [
+      {
+        "full_name": "Егорченков Василий Викторович",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Рассмотрение дела"
+  },
+  "case_57_nouid-62MS0068-8e3eba8e2c68.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Регистрация судебного приказа"
+  },
+  "case_57_nouid-62MS0068-c95d1c425ddd.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Судебное заседание"
+  },
+  "case_59_75MS0059-01-2026-000849-59.html": {
+    "category": "Споры, связанные с имущественными правами Иски о взыскании сумм по договору займа, кредитному договору",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-15T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-29"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о назначении дела к разбирательству в судебном заседании"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-29"
+        },
+        "state_description": "Судебное заседание"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Курц Снежана Юрьевна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-15"
+    },
+    "sides": [
+      {
+        "full_name": "ООО МКК \"Русинтерфинанс\"",
+        "role": "Материальный истец"
+      },
+      {
+        "full_name": "Аксенов Виталий Владимирович",
+        "role": "Ответчик"
+      }
+    ],
+    "status": "Судебное заседание"
+  },
+  "case_6_63MS0006-01-2026-001463-65.html": {
+    "category": "Споры, связанные с жилищными отношениями О взыскании платы за жилую площадь и коммунальные платежи, тепло и электроэнергию",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-28T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-29"
+        },
+        "state_description": "Регистрация судебного приказа"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-07-28"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Корнилова Мария Александровна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "ООО \"ЭкоСтройРесурс\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Близнецова Мария Владимировна",
+        "role": "Должник"
+      }
+    ],
+    "status": "Регистрация судебного приказа"
+  },
+  "case_6_63MS0006-01-2026-001615-94.html": {
+    "category": "Споры, связанные с имущественными правами О взыскании неосновательного обогащения",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-04T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-10"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о назначении предварительного судебного заседания"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T16:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-10"
+        },
+        "state_description": "Предварительное судебное заседание"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Корнилова Мария Александровна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "Государственное казенное учреждение Самарской области \"Управляющий центр занятости населения\"",
+        "role": "Материальный истец"
+      },
+      {
+        "full_name": "Гирич Александр Юрьевич",
+        "role": "Ответчик"
+      }
+    ],
+    "status": "Предварительное судебное заседание"
+  },
+  "case_6_nouid-63MS0006-63b7d4d933e4.html": {
+    "category": "О взыскании платы за жилую площадь и коммунальные платежи, тепло и электроэнергию",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2010-08-05T00:00:00"
+        },
+        "published_at": null,
+        "state_description": "Ознакомление с материалами - Принято решение: Судебный приказ"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2010-08-09T00:00:00"
+        },
+        "published_at": null,
+        "state_description": "Регистрация судебного приказа"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2010-08-09"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Кузина Наталья Николаевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "ЗАО \" ПТС- Сервис\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Ворожейкина О. Б.",
+        "role": "Должник"
+      }
+    ],
+    "status": "Обращение к исполнению"
+  },
+  "case_74_nouid-71MS0074-1a8ac62133cd.html": {
+    "category": "Споры, связанные с жилищными отношениями О взыскании платы за жилую площадь и коммунальные платежи, тепло и электроэнергию",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-31T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-03"
+        },
+        "state_description": "Регистрация судебного приказа"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-07-31"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Тихонова Любовь Олеговна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-31"
+    },
+    "sides": [
+      {
+        "full_name": "ООО \"Феникс\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Михайлов Виктор Андреевич",
+        "role": "Должник"
+      }
+    ],
+    "status": "Регистрация судебного приказа"
+  },
+  "case_96_nouid-59MS0096-75a9a5a05233.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Рассмотрение дела"
+  },
+  "case_96_nouid-59MS0096-8ea6caa0770d.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Предварительное слушание"
+  },
+  "case_abakan1_19MS0001-01-2026-004058-47.html": {
+    "category": "Споры, связанные с имущественными правами Иски о взыскании сумм по договору займа, кредитному договору",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-03T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-31"
+        },
+        "state_description": "Регистрация судебного приказа"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-08-03"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Щетинина Мария Владимировна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "ООО \"ПКО \"НАБАТ\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Харлан Сергей Алексеевич",
+        "role": "Должник"
+      }
+    ],
+    "status": "Ознакомление с материалами"
+  },
+  "case_abakan1_19MS0001-01-2026-004064-29.html": {
+    "category": "Споры, связанные с жилищными отношениями О взыскании платы за жилую площадь и коммунальные платежи, тепло и электроэнергию",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-03T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-31"
+        },
+        "state_description": "Регистрация судебного приказа"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-08-03"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Карачакова Анжелика Геннадьевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "АО \"Абаканская ТЭЦ\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Родионова Алена Викторовна",
+        "role": "Должник"
+      }
+    ],
+    "status": "Ознакомление с материалами"
+  },
+  "case_adg1_nouid-01MS0022-7c5751b4a3f0.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Сдача в архив"
+  },
+  "case_anadyr_87MS0001-01-2026-000989-85.html": {
+    "category": "Споры, возникающие из семейных правоотношений О расторжении брака супругов - бездетных или имеющих взрослых детей",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-05-08T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-16"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о назначении дела к разбирательству в судебном заседании"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-08T14:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-16"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Иные причины"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-06-16T10:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-16"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Неявка ответчика"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-16"
+        },
+        "state_description": "Судебное заседание"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Иванова Анна Сергеевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Ознакомление с материалами"
+  },
+  "case_anadyr_87MS0001-01-2026-001607-74.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": {
+      "__date__": "2026-08-29"
+    },
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-18"
+        },
+        "state_description": "Административное наказание"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T14:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-16"
+        },
+        "state_description": "Рассмотрение дела - Принято решение: Постановление о назначении административного наказания"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-08-18"
+    },
+    "first_instance_decision": "Постановление о назначении административного наказания",
+    "judge_names": [
+      "Орлов Евгений Александрович"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "Кондаков Роман Михайлович",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Подготовка к рассмотрению"
+  },
+  "case_asi1_70MS0002-01-2026-003203-23.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-10T11:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-12"
+        },
+        "state_description": "Рассмотрение дела - Перенесено по причинам: Перерыв"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-11T14:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-12"
+        },
+        "state_description": "Рассмотрение дела - Перенесено по причинам: Неявка потерпевшего"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-12"
+        },
+        "state_description": "Рассмотрение дела"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Некрасова Елена Васильевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "Подлесская Елена Михайловна",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Рассмотрение дела"
+  },
+  "case_asi1_nouid-70MS0002-7cef9b61e6e4.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T14:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-07"
+        },
+        "state_description": "Рассмотрение материала"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Некрасова Елена Васильевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "ООО ПКО Вернём",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Пангина Екатерина Игоревна",
+        "role": "Должник"
+      },
+      {
+        "full_name": "ООО ПКО Вернём",
+        "role": "Заявитель"
+      }
+    ],
+    "status": "Рассмотрение материала"
+  },
+  "case_bea_19MS0028-01-2025-005434-98.html": {
+    "category": "Споры, связанные с имущественными правами Иски о взыскании сумм по договору займа, кредитному договору",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2025-12-12T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2025-12-05"
+        },
+        "state_description": "Регистрация судебного приказа"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2025-12-12"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Майнагашева Татьяна Иннокентьевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "АО «Микрокредитная компания универсального финансирования»",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Катарэу Дмитрий Павлович",
+        "role": "Должник"
+      }
+    ],
+    "status": "Ознакомление с материалами"
+  },
+  "case_bolh_nouid-57MS0001-95fdbd5239d2.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T09:45:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-31"
+        },
+        "state_description": "Рассмотрение дела"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Куприна Елена Михайловна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-24"
+    },
+    "sides": [
+      {
+        "full_name": "Жестовский Илья Сергеевич",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Рассмотрение дела"
+  },
+  "case_bond_68MS0001-01-2026-000805-45.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T09:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-07"
+        },
+        "state_description": "Рассмотрение дела - Принято решение: Постановление о назначении административного наказания"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-18"
+        },
+        "state_description": "Административное наказание"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-08-18"
+    },
+    "first_instance_decision": "Постановление о назначении административного наказания",
+    "judge_names": [
+      "Агзаметдинова Венера Ринатовна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "Григорьев Вячеслав Сергеевич",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Административное наказание"
+  },
+  "case_bond_68RS0005-01-2026-000176-94.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-19T10:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-07"
+        },
+        "state_description": "Рассмотрение дела"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Агзаметдинова Венера Ринатовна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "Севостьянов Павел Викторович",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Рассмотрение дела"
+  },
+  "case_bond_nouid-68MS0001-909bec32420a.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-19T09:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-06"
+        },
+        "state_description": "Рассмотрение материала"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Агзаметдинова Венера Ринатовна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "ООО \"РСВ\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Ястребова Татьяна Владимировна",
+        "role": "Должник"
+      },
+      {
+        "full_name": "ООО ПКО \"РСВ\"",
+        "role": "Заявитель"
+      }
+    ],
+    "status": "Рассмотрение материала"
+  },
+  "case_cherkessk2_09MS0002-01-2022-001350-59.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2022-06-09T16:00:00"
+        },
+        "published_at": {
+          "__date__": "2022-08-22"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Иные причины"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2022-06-27T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2022-08-22"
+        },
+        "state_description": "Судебное заседание - Принято решение: Приговор"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2022-06-28T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2022-08-22"
+        },
+        "state_description": "Приговор"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2022-06-28"
+    },
+    "first_instance_decision": "Вынесен приговор",
+    "judge_names": [
+      "Голубничая Людмила Павловна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "Яценко Татьяна Ивановна",
+        "role": "Лицо"
+      }
+    ],
+    "status": "Обращение к исполнению"
+  },
+  "case_details_page.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": null
+  },
+  "case_details_page_2.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": null
+  },
+  "case_elec-r1_48MS0012-01-2026-001030-63.html": {
+    "category": "Споры, связанные с имущественными правами Иски о взыскании сумм по договору займа, кредитному договору",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-31T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-31"
+        },
+        "state_description": "Регистрация судебного приказа"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-07-31"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Свиридова Маргарита Вячеславовна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "ООО ПКО \"АйДи Коллект\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Абдулхакимов Абдулхамид Абдынабыевич",
+        "role": "Должник"
+      }
+    ],
+    "status": "Регистрация судебного приказа"
+  },
+  "case_indmir1_nouid-18MS0001-32d1250308c9.html": {
+    "category": "Споры, связанные с жилищными отношениями О взыскании платы за жилую площадь и коммунальные платежи, тепло и электроэнергию",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-06-16T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-06-23"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о назначении предварительного судебного заседания"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-06-23"
+        },
+        "state_description": "Предварительное судебное заседание - Принято решение: Определение о назначении дела к разбирательству в судебном заседании"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-09-09T10:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-18"
+        },
+        "state_description": "Судебное заседание"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Чулкина Евгения Анатольевна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-06-09"
+    },
+    "sides": [
+      {
+        "full_name": "ООО \" ИЖЕВСКАЯ УК\"",
+        "role": "Материальный истец"
+      },
+      {
+        "full_name": "Гурьева Ирина Семеновна",
+        "role": "Ответчик"
+      }
+    ],
+    "status": "Судебное заседание"
+  },
+  "case_indmir1_nouid-18MS0001-44681034c723.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-06-18T09:15:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-07"
+        },
+        "state_description": "Рассмотрение материала - Перенесено по причинам: Иные причины"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T09:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-07"
+        },
+        "state_description": "Рассмотрение материала"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Чулкина Евгения Анатольевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "ООО ПКО \"Нэйва\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Бабакаев Игорь Александрович",
+        "role": "Должник"
+      }
+    ],
+    "status": "Рассмотрение материала"
+  },
+  "case_indmir1_nouid-18MS0001-e9ba0d205ee7.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-06-29T11:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-06-08"
+        },
+        "state_description": "Рассмотрение дела - Перенесено по причинам: Иные причины"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-06-29"
+        },
+        "state_description": "Рассмотрение дела - Перенесено по причинам: Иные причины"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-09-10T11:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-18"
+        },
+        "state_description": "Рассмотрение дела"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Чулкина Евгения Анатольевна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-05-28"
+    },
+    "sides": [
+      {
+        "full_name": "ИП Эльсайед Дарья Юрьевна",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Рассмотрение дела"
+  },
+  "case_kizil1_nouid-17MS0001-21378c2ab9c5.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Регистрация судебного приказа"
+  },
+  "case_kizil1_nouid-17MS0001-ca15c98deaa6.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Регистрация судебного приказа"
+  },
+  "case_kol3_70MS0018-01-2026-002466-28.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T09:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-18"
+        },
+        "state_description": "Рассмотрение дела - Принято решение: Постановление о назначении административного наказания"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-18"
+        },
+        "state_description": "Административное наказание"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-08-18"
+    },
+    "first_instance_decision": "Постановление о назначении административного наказания",
+    "judge_names": [
+      "Фомченко Николай Николаевич"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "Кулюкин Василий Николаевич",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Административное наказание"
+  },
+  "case_lenms1_39MS0001-01-2026-004279-48.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-17T08:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-03"
+        },
+        "state_description": "Рассмотрение дела"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Лямцева Юлия Игоревна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-27"
+    },
+    "sides": [
+      {
+        "full_name": "Коваленко Алексей Викторович",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Рассмотрение дела"
+  },
+  "case_lezhnevo2_37MS0049-01-2026-001243-66.html": {
+    "category": "Споры, связанные с имущественными правами Иски о взыскании сумм по договору займа, кредитному договору",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-10T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-11"
+        },
+        "state_description": "Регистрация судебного приказа"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-07-10"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Деревянкина Надежда Николаевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "ООО ПКО Траст",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Матвеев Андрей Николаевич",
+        "role": "Должник"
+      }
+    ],
+    "status": "Регистрация судебного приказа"
+  },
+  "case_maikop1_nouid-01MS0001-049286050778.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Сдача в архив"
+  },
+  "case_maikop1_nouid-01MS0001-bc2437e1e103.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Сдача в архив"
+  },
+  "case_metallurgchel6_nouid-74MS0038-846f38f4e96f.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Сдача в архив"
+  },
+  "case_mirsud_78MS0009-01-2026-002949-20.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": null
+  },
+  "case_mirsud_78MS0009-01-2026-003023-89.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": null
+  },
+  "case_mirsud_78MS0056-01-2026-002523-68.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": null
+  },
+  "case_mirsud_78MS0098-01-2026-003970-97.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": null
+  },
+  "case_mirsud_78MS0098-01-2026-003978-73.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": null
+  },
+  "case_mirsud_78MS0124-01-2026-003108-44.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": null
+  },
+  "case_mirsud_78MS0208-01-2026-002313-14.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": null
+  },
+  "case_okt6_61MS0033-01-2026-002050-27.html": {
+    "category": "Споры, возникающие из семейных правоотношений О расторжении брака супругов - имеющих детей",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-10T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-15"
+        },
+        "state_description": "Оставление без движения - Принято решение: Определение о принятии к производству"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-16T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-18"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о подготовке дела к судебному разбирательству"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-30T16:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-18"
+        },
+        "state_description": "Подготовка дела (Собеседование) - Принято решение: Определение о назначении дела к разбирательству в судебном заседании"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-06"
+        },
+        "state_description": "Судебное заседание"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Зубова Екатерина Александровна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Судебное заседание"
+  },
+  "case_okt6_61MS0033-01-2026-002493-56.html": {
+    "category": "Споры, возникающие из семейных правоотношений О расторжении брака супругов - имеющих детей",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-07T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-14"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о подготовке дела к судебному разбирательству"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T15:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-14"
+        },
+        "state_description": "Подготовка дела (Собеседование)"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Русенко Юлия Юрьевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Подготовка дела (Собеседование)"
+  },
+  "case_okt6_nouid-61MS0033-933e1c453eb1.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T11:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-14"
+        },
+        "state_description": "Рассмотрение материала"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Русенко Юлия Юрьевна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "ООО Фактор",
+        "role": "Заявитель"
+      },
+      {
+        "full_name": "Худавердян Владимир Сасунович",
+        "role": "Иное лицо"
+      }
+    ],
+    "status": "Рассмотрение материала"
+  },
+  "case_sakha45_nouid-14MS0054-972273874cab.html": {
+    "category": "О защите прав потребителей - из договоров в сфере торговли, услуг и т.п.",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2011-04-29T00:00:00"
+        },
+        "published_at": null,
+        "state_description": "Ознакомление с материалами"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2011-04-29T00:00:00"
+        },
+        "published_at": null,
+        "state_description": "Подготовка к судебному разбирательству"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2011-05-10T11:00:00"
+        },
+        "published_at": null,
+        "state_description": "Судебное заседание"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2011-05-13T00:00:00"
+        },
+        "published_at": null,
+        "state_description": "Судебное заседание"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2011-05-13T00:00:00"
+        },
+        "published_at": null,
+        "state_description": "Решение по существу"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2011-05-13"
+    },
+    "first_instance_decision": "Иск (заявление) удовлетворен частично",
+    "judge_names": [
+      "Ступина Надежда Викторовна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "Егоров Александр Николаевич",
+        "role": "Истец"
+      },
+      {
+        "full_name": "ОАО АК \"Якутия\"",
+        "role": "Ответчик"
+      }
+    ],
+    "status": "Решение по существу"
+  },
+  "case_sovchel2_nouid-74MS0002-d9e38c461cb8.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Судебное заседание"
+  },
+  "case_sovchel2_nouid-74MS0002-fbd394213e3b.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Административное наказание"
+  },
+  "case_t-h_nouid-17MS0019-f5dac9426099.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": "Обращение к исполнению"
+  },
+  "case_vrsh1_61MS0001-01-2026-000806-23.html": {
+    "category": "Отношения, связанные с защитой прав потребителей О защите прав потребителей - иные сферы деятельности",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-18T10:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-17"
+        },
+        "state_description": "Судебное заседание"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Довлекаева Ольга Владимировна"
+    ],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [
+      {
+        "full_name": "Джаноян Лиана Рубиковна",
+        "role": "Материальный истец"
+      },
+      {
+        "full_name": "ИП Васильева Виктория Павловна",
+        "role": "Ответчик"
+      }
+    ],
+    "status": "Судебное заседание"
+  },
+  "main_search_page.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": null
+  },
+  "mo_captcha_form.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [],
+    "place_history": [],
+    "receipt_date": null,
+    "sides": [],
+    "status": null
+  },
+  "mo_case_148_434639708.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-06T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-20"
+        },
+        "state_description": "Подготовка к рассмотрению - Принято решение: Определение о назначении времени и места рассмотрения дела"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-06T10:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-20"
+        },
+        "state_description": "Рассмотрение дела"
+      }
+    ],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Святкина Ольга Александровна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-07-16"
+    },
+    "sides": [
+      {
+        "full_name": "Земенков Владимир Геннадьевич",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Рассмотрение дела"
+  },
+  "mo_case_215_436540882.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Матрос Андрей Валентинович"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-08-05"
+    },
+    "sides": [
+      {
+        "full_name": "ООО ПКО \"Айди Коллект\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Петров Иван Сергеевич",
+        "role": "Должник"
+      }
+    ],
+    "status": "Ознакомление с материалами"
+  },
+  "mo_case_5_415323702.html": {
+    "category": "Споры, связанные с жилищными отношениями О взыскании платы за жилую площадь и коммунальные платежи, тепло и электроэнергию",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-02-13T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-02-13"
+        },
+        "state_description": "Регистрация судебного приказа - Принято решение: Определение об отмене судебного приказа"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-03-05T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-03-17"
+        },
+        "state_description": "Определение об отмене судебного приказа"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-02-25T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-03-17"
+        },
+        "state_description": "Окончание производства"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-02-13"
+    },
+    "first_instance_decision": "Судебный приказ",
+    "judge_names": [
+      "Парунова Надежда Викторовна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-02-11"
+    },
+    "sides": [
+      {
+        "full_name": "МУП \"Балашихинские коммунальные системы\"",
+        "role": "Взыскатель"
+      },
+      {
+        "full_name": "Улогов Юрий Григорьевич",
+        "role": "Должник"
+      }
+    ],
+    "status": "Сдача в архив"
+  },
+  "mo_case_5_422334200.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": {
+      "__date__": "2026-05-06"
+    },
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-04-09T14:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-04-09"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Неявка защитника"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-04-20T15:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-04-09"
+        },
+        "state_description": "Судебное заседание - Принято решение: Постановление о прекращении уголовного дела"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-04-20T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-04-20"
+        },
+        "state_description": "Прекращение производства"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-04-14T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-05-13"
+        },
+        "state_description": "Окончание производства"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-04-20"
+    },
+    "first_instance_decision": "Постановление о прекращении уголовного дела",
+    "judge_names": [
+      "Кравцова Ирина Викторовна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-03-31"
+    },
+    "sides": [
+      {
+        "full_name": "Гордымов Роман Анатольевич",
+        "role": "Защитник"
+      },
+      {
+        "full_name": "Розанова Анжелика Ивановна",
+        "role": "Лицо"
+      }
+    ],
+    "status": "Сдача в архив"
+  },
+  "mo_case_5_424820424.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-04-27T14:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-04-29"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Неявка потерпевшего; Неявка подсудимого"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-05-04T14:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-04-29"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Иные причины"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-05-25T10:50:00"
+        },
+        "published_at": {
+          "__date__": "2026-05-04"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Иные причины"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-06-08T14:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-05-25"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Перерыв"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-06-15T11:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-06-10"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Иные причины"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-06-29T14:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-06-17"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Неявка других участников процесса; Неявка подсудимого; Неявка защитника"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-06T14:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-06-30"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Перерыв"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-10T14:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-09"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Иные причины"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-21T14:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-14"
+        },
+        "state_description": "Судебное заседание - Перенесено по причинам: Иные причины"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-22T12:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-22"
+        },
+        "state_description": "Судебное заседание - Принято решение: Приговор"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-22T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-22"
+        },
+        "state_description": "Приговор"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-07-22"
+    },
+    "first_instance_decision": "Вынесен приговор",
+    "judge_names": [
+      "Кравцова Ирина Викторовна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-04-15"
+    },
+    "sides": [
+      {
+        "full_name": "Гербст Иван Иванович",
+        "role": "Защитник"
+      },
+      {
+        "full_name": "Новикова Наталья Михайловна",
+        "role": "Защитник"
+      },
+      {
+        "full_name": "Писарев Илья Вячеславович",
+        "role": "Лицо"
+      }
+    ],
+    "status": "Приговор"
+  },
+  "mo_case_5_436673426.html": {
+    "category": null,
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [],
+    "first_instance_date": null,
+    "first_instance_decision": null,
+    "judge_names": [
+      "Васильева Екатерина Владимировна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-08-05"
+    },
+    "sides": [
+      {
+        "full_name": "Осипов Кирилл Федорович",
+        "role": "Лицо, в отношении которого ведется производство по делу"
+      }
+    ],
+    "status": "Подготовка к рассмотрению"
+  },
+  "mo_case_95_429386415.html": {
+    "category": "Прочие исковые дела Иные исковые дела",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-06-02T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-06-05"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о подготовке дела к судебному разбирательству"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-06-23T12:10:00"
+        },
+        "published_at": {
+          "__date__": "2026-06-05"
+        },
+        "state_description": "Подготовка дела (Собеседование) - Принято решение: Определение о назначении дела к разбирательству в судебном заседании"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-14T11:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-06-26"
+        },
+        "state_description": "Судебное заседание - Принято решение: Решение по существу"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-14T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-15"
+        },
+        "state_description": "Решение по существу"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-07-14"
+    },
+    "first_instance_decision": "Иск (заявление) удовлетворен",
+    "judge_names": [
+      "Васильева Елена Александровна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-05-27"
+    },
+    "sides": [
+      {
+        "full_name": "Тодыков Владимир Михайлович",
+        "role": "Материальный истец"
+      },
+      {
+        "full_name": "Тарасов Олег Михайлович",
+        "role": "Ответчик"
+      }
+    ],
+    "status": "Решение по существу"
+  },
+  "mo_case_95_432884853.html": {
+    "category": "Споры, связанные с жилищными отношениями О взыскании платы за жилую площадь и коммунальные платежи, тепло и электроэнергию",
+    "court_sessions": [],
+    "decision_effective_date": null,
+    "documents": [],
+    "events": [
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-01T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-03"
+        },
+        "state_description": "Подготовка к судебному разбирательству - Принято решение: Определение о подготовке дела к судебному разбирательству"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-07-14T12:30:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-03"
+        },
+        "state_description": "Подготовка дела (Собеседование) - Принято решение: Определение о назначении дела к разбирательству в судебном заседании"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-04T16:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-07-15"
+        },
+        "state_description": "Судебное заседание - Принято решение: Решение по существу"
+      },
+      {
+        "document_str": null,
+        "event_date": {
+          "__datetime__": "2026-08-04T00:00:00"
+        },
+        "published_at": {
+          "__date__": "2026-08-04"
+        },
+        "state_description": "Решение по существу"
+      }
+    ],
+    "first_instance_date": {
+      "__date__": "2026-08-04"
+    },
+    "first_instance_decision": "Иск (заявление) удовлетворен",
+    "judge_names": [
+      "Васильева Елена Александровна"
+    ],
+    "place_history": [],
+    "receipt_date": {
+      "__date__": "2026-06-24"
+    },
+    "sides": [
+      {
+        "full_name": "МБУ \"КГС\"",
+        "role": "Материальный истец"
+      },
+      {
+        "full_name": "Шувалов Владислав Владимирович",
+        "role": "Ответчик"
+      }
+    ],
+    "status": "Решение по существу"
+  }
+}
