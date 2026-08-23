@@ -1,22 +1,67 @@
 # Локальная разработка: docker-compose up  --  поднимает весь каркас одной командой.
 #
 # Контейнеры:
-#   инфраструктура (готовые образы): postgres, rabbitmq, redis
-#   core   (FastAPI + Celery):        core-api, core-worker-urgent, core-worker-regular
-#   client (Django):                  client-web
+#   инфраструктура (готовые образы): postgres, rabbitmq, redis, minio
+#   core_v2 (FastAPI + Celery):      core-v2-api, core-v2-worker-urgent,
+#                                    core-v2-worker-regular
 #
-# core-worker-urgent и core-worker-regular собираются из ОДНОГО образа core и
-# отличаются только очередью, которую слушают (-Q urgent / -Q regular).
+# Воркеры собираются из ОДНОГО образа и отличаются только очередью, которую слушают
+# (-Q urgent / -Q regular).
+#
+# Чего здесь нет и почему:
+#
+#   * контейнера beat. В старом core он гонял ночной обход дел «на мониторинге». Ни
+#     флага мониторинга, ни планировщика в core_v2 нет: решать, какие дела и когда
+#     переобходить, будет сервис, который знает пользователей. Core умеет только
+#     «обойди это дело сейчас»;
+#   * сервисов старого core. Он остался на диске как reference implementation — его
+#     читают и по нему сверяют поведение, но не запускают. Тесты гоняются локально;
+#   * сервисов Django-клиента. Он удалён; новый клиент будет отдельным сервисом и
+#     станет обращаться к core по HTTP.
+
+# Общие настройки трёх контейнеров core_v2: образ и переменные окружения у них одни,
+# различается только команда запуска. Блок вынесен на верхний уровень, чтобы его нельзя
+# было принять за ещё один сервис.
+x-core-v2: &core-v2
+  build: ./services/core_v2
+  environment: &core-v2-env
+    TZ: ${TZ}
+    CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+    CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+    DATABASE_URL: ${CORE_V2_DATABASE_URL}
+    ADMIN_USERNAME: ${ADMIN_USERNAME}
+    ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY}
+    # Ходить на портал только через прокси из таблицы proxy (пустой пул = отказ).
+    COURT_PROXY_REQUIRED: ${COURT_PROXY_REQUIRED}
+    # Разгадывание капчи на порталах движка msudrf.ru.
+    RUCAPTCHA_API_KEY: ${RUCAPTCHA_API_KEY}
+    S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
+    S3_BUCKET: ${S3_BUCKET}
+    S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+    S3_SECRET_KEY: ${S3_SECRET_KEY}
+    S3_REGION: ${S3_REGION}
+  volumes:
+    - ./services/core_v2:/app
+  depends_on:
+    postgres:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    minio:
+      condition: service_started
 
 services:
   # ------------------------------------------------------------------ infra
-  # Реляционная БД. Хранит данные сервисов (пользователи, дела, события).
+  # Реляционная БД. Хранит дела, суды, события.
   #
   # TZ здесь НЕ задаём, и это не упущение. Все колонки-моменты — timestamptz, они хранят
   # момент независимо от пояса сессии, так что менять его незачем; а вот выставить сюда
   # Europe/Moscow «для порядка» — значит поменять то, как psql печатает время, и сбить с
   # толку того, кто пойдёт сверять данные руками. Пояс отображения живёт в одном месте —
-  # ADMIN_TIMEZONE в services/core/app/admin.py.
+  # ADMIN_TIMEZONE в services/core_v2/app/admin.py.
   postgres:
     image: postgres:16
     environment:
@@ -27,9 +72,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Заводит вторую базу — soroka_client (схему client ведёт Django, схему core —
-      # alembic; в одной базе они столкнулись бы). Отрабатывает только при первой
-      # инициализации кластера, то есть на пустом томе postgres_data.
+      # Заводит базу core_v2. Отрабатывает только при первой инициализации кластера,
+      # то есть на пустом томе postgres_data.
       - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
@@ -37,7 +81,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # Брокер сообщений: очереди задач Celery + шина событий между core и client.
+  # Брокер очередей Celery.
   rabbitmq:
     image: rabbitmq:3-management
     environment:
@@ -54,7 +98,7 @@ services:
       timeout: 10s
       retries: 10
 
-  # Хранилище результатов Celery-задач + кэш / rate-limit в будущем.
+  # Хранилище результатов Celery-задач.
   redis:
     image: redis:7
     ports:
@@ -65,9 +109,9 @@ services:
       timeout: 3s
       retries: 5
 
-  # S3-совместимое хранилище: снапшоты HTML страниц суда (карточки дел).
-  # Локальная замена облачного S3 — код работает через boto3, в проде меняется
-  # только S3_ENDPOINT_URL и ключи.
+  # S3-совместимое хранилище: картинки капчи и отладочный архив HTML страниц суда.
+  # Локальная замена облачного S3 — код работает через boto3, в проде меняется только
+  # S3_ENDPOINT_URL и ключи.
   minio:
     image: minio/minio
     command: server /data --console-address ":9001"
@@ -80,8 +124,8 @@ services:
     volumes:
       - minio_data:/data
 
-  # Одноразовый контейнер: создаёт бакет и завершается. Ждёт minio в цикле, чтобы
-  # не угадывать healthcheck (образ minio/mc минимальный, curl там может не быть).
+  # Одноразовый контейнер: создаёт бакет и завершается. Ждёт minio в цикле, чтобы не
+  # угадывать healthcheck (образ minio/mc минимальный, curl там может не быть).
   minio-init:
     image: minio/mc
     depends_on:
@@ -96,193 +140,24 @@ services:
              mc mb --ignore-existing local/$$S3_BUCKET;
              echo 'бакет' $$S3_BUCKET 'готов'"
 
-  # ------------------------------------------------------------------ core
-  # HTTP API core (FastAPI): принимает запросы от client, отдаёт данные по делам.
-  core-api:
-    build: ./services/core
+  # ---------------------------------------------------------------- core_v2
+  # HTTP API: принимает запросы, отдаёт дела и поток изменений. В портал НЕ ходит —
+  # это делают воркеры.
+  core-v2-api:
+    <<: *core-v2
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    environment:
-      # Одна таймзона во всех контейнерах: Django в client выставляет её процессу,
-      # и без выравнивания воркеры core и client ругаются друг на друга
-      # расхождением часов (mingle: "Substantial drift").
-      TZ: ${TZ}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
-      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
-      DATABASE_URL: ${DATABASE_URL}
-      ADMIN_USERNAME: ${ADMIN_USERNAME}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY}
-      # Разгадывание капчи на порталах судов Московской области.
-      RUCAPTCHA_API_KEY: ${RUCAPTCHA_API_KEY}
-      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
-      S3_BUCKET: ${S3_BUCKET}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
-      S3_SECRET_KEY: ${S3_SECRET_KEY}
-      S3_REGION: ${S3_REGION}
     ports:
-      - "8000:8000"      # http://localhost:8000/ping
-    volumes:
-      - ./services/core:/app
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_started
+      - "8000:8000"      # http://localhost:8000/ping, админка на /admin
 
-  # Celery-воркер СРОЧНОЙ очереди: парсит только что добавленные дела (быстрый отклик).
-  core-worker-urgent:
-    build: ./services/core
-    # срочная очередь: свежие дела от новых пользователей — быстрый отклик
+  # Срочная очередь: только что добавленные пользователем дела — нужен быстрый отклик.
+  core-v2-worker-urgent:
+    <<: *core-v2
     command: celery -A app.celery_app worker -Q urgent -l info --concurrency=2
-    environment:
-      # Одна таймзона во всех контейнерах: Django в client выставляет её процессу,
-      # и без выравнивания воркеры core и client ругаются друг на друга
-      # расхождением часов (mingle: "Substantial drift").
-      TZ: ${TZ}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
-      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
-      DATABASE_URL: ${DATABASE_URL}
-      # Ходить на портал только через прокси из таблицы proxy (пустой пул = задача падает).
-      COURT_PROXY_REQUIRED: ${COURT_PROXY_REQUIRED}
-      # Разгадывание капчи на порталах судов Московской области.
-      RUCAPTCHA_API_KEY: ${RUCAPTCHA_API_KEY}
-      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
-      S3_BUCKET: ${S3_BUCKET}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
-      S3_SECRET_KEY: ${S3_SECRET_KEY}
-      S3_REGION: ${S3_REGION}
-    volumes:
-      - ./services/core:/app
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_started
 
-  # Celery-воркер РЯДОВОЙ очереди: фоновый ежедневный обход существующих дел.
-  core-worker-regular:
-    build: ./services/core
-    # рядовая очередь: фоновый ежедневный обход существующих дел
+  # Рядовая очередь: всё остальное, в том числе ручные переобходы.
+  core-v2-worker-regular:
+    <<: *core-v2
     command: celery -A app.celery_app worker -Q regular -l info --concurrency=4
-    environment:
-      # Одна таймзона во всех контейнерах: Django в client выставляет её процессу,
-      # и без выравнивания воркеры core и client ругаются друг на друга
-      # расхождением часов (mingle: "Substantial drift").
-      TZ: ${TZ}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
-      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
-      DATABASE_URL: ${DATABASE_URL}
-      # Ходить на портал только через прокси из таблицы proxy (пустой пул = задача падает).
-      COURT_PROXY_REQUIRED: ${COURT_PROXY_REQUIRED}
-      # Разгадывание капчи на порталах судов Московской области.
-      RUCAPTCHA_API_KEY: ${RUCAPTCHA_API_KEY}
-      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
-      S3_BUCKET: ${S3_BUCKET}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
-      S3_SECRET_KEY: ${S3_SECRET_KEY}
-      S3_REGION: ${S3_REGION}
-    volumes:
-      - ./services/core:/app
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_started
-
-  # Celery-beat core: расписание фоновых обходов (сам воркер расписание не читает).
-  # Раз в сутки ночью ставит в очередь regular переобход всех дел на мониторинге.
-  core-beat:
-    build: ./services/core
-    command: celery -A app.celery_app beat -l info
-    environment:
-      # Одна таймзона во всех контейнерах: Django в client выставляет её процессу,
-      # и без выравнивания воркеры core и client ругаются друг на друга
-      # расхождением часов (mingle: "Substantial drift").
-      TZ: ${TZ}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
-      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
-      DATABASE_URL: ${DATABASE_URL}
-      MONITORING_INTERVAL_HOURS: ${MONITORING_INTERVAL_HOURS}
-      MONITORING_HOUR: ${MONITORING_HOUR}
-      MONITORING_SPACING_SECONDS: ${MONITORING_SPACING_SECONDS}
-      MONITORING_BATCH_LIMIT: ${MONITORING_BATCH_LIMIT}
-    volumes:
-      - ./services/core:/app
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  # ------------------------------------------------------------------ client
-  # Веб-сервис (Django): регистрация, список дел на мониторинге, API для бота.
-  client-web:
-    build: ./services/client
-    command: python manage.py runserver 0.0.0.0:8080
-    environment: &client-env
-      TZ: ${TZ}
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
-      DJANGO_DEBUG: ${DJANGO_DEBUG}
-      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
-      # Своя база: схему client ведёт Django, схему core — alembic.
-      CLIENT_DB_NAME: ${CLIENT_DB_NAME}
-      CLIENT_DB_USER: ${POSTGRES_USER}
-      CLIENT_DB_PASSWORD: ${POSTGRES_PASSWORD}
-      CLIENT_DB_HOST: postgres
-      CLIENT_DB_PORT: 5432
-      # Дела клиент берёт только по HTTP из core-api, в его БД не ходит.
-      CORE_API_URL: ${CORE_API_URL}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
-      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
-    ports:
-      - "8080:8080"      # http://localhost:8080/
-    volumes:
-      - ./services/client:/app
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  # Celery-воркер client: опрашивает core о состоянии заведённых дел.
-  # Очередь своя (client) — в очередях core нет ни Django, ни его настроек.
-  client-worker:
-    build: ./services/client
-    command: celery -A config.celery_app worker -Q client -l info --concurrency=2
-    environment: *client-env
-    volumes:
-      - ./services/client:/app
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-
-  # Celery-beat client: раз в минуту опрашивает задачи по делам в состоянии
-  # «ищем дело», раз в 15 минут обновляет витрину.
-  client-beat:
-    build: ./services/client
-    command: celery -A config.celery_app beat -l info
-    environment: *client-env
-    volumes:
-      - ./services/client:/app
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
 
 volumes:
   postgres_data:

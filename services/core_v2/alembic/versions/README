@@ -1,0 +1,13 @@
+Миграции core_v2.
+
+История начинается с нуля: 27 миграций старого services/core сюда не копируются.
+Причина — core_v2 работает с отдельной базой (soroka_core_v2), а alembic_version это
+однострочная таблица, поэтому две независимые истории миграций в одной базе несовместимы.
+
+Первая ревизия — d91071d0aaae «initial domain models». Она описывает целевое состояние
+схемы сразу, одним куском: 15 таблиц, без monitoring-колонок, без instance, case_link,
+document.document_text и event.document_id. Обоснование каждого удаления —
+services/core_v2_AUDIT.md, раздел 10.
+
+Проверка, что модели и схема не разошлись: после `alembic upgrade head` повторный
+`alembic revision --autogenerate` обязан выдать ПУСТУЮ миграцию.

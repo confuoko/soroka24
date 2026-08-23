@@ -1,11 +1,12 @@
--- Отдельная база для клиентского сервиса (Django).
+-- Отдельная база для core_v2.
 --
--- База core создаётся самим образом postgres из POSTGRES_DB, а вторую надо завести
--- руками. Разные базы, а не разные схемы, потому что core ведёт схему alembic'ом,
--- а client — миграциями Django: в одной базе они рано или поздно столкнутся на
--- общем пространстве имён таблиц.
+-- База из POSTGRES_DB создаётся самим образом postgres; эту надо завести руками.
+--
+-- Своя, а не общая со старым core: alembic_version — однострочная таблица, поэтому две
+-- независимые истории миграций в одной базе несовместимы. Побочная польза — старый core
+-- можно поднять рядом и сверить поведение, не мешая данным core_v2.
 --
 -- Скрипт выполняется ТОЛЬКО при первой инициализации кластера (пустой том
 -- postgres_data). Если база уже поднималась, заведите вручную:
---   docker compose exec postgres psql -U soroka -c "CREATE DATABASE soroka_client;"
-CREATE DATABASE soroka_client;
+--   docker compose exec postgres psql -U soroka -c "CREATE DATABASE soroka_core_v2;"
+CREATE DATABASE soroka_core_v2;
