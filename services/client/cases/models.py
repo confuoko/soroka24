@@ -158,6 +158,10 @@ class UserCaseChange(models.Model):
     occurred_at = models.DateTimeField("обнаружено")
     # Пусто — пользователь ещё не видел.
     read_at = models.DateTimeField("прочитано", null=True, blank=True)
+    # Пусто — пользователю об этом изменении ещё не сообщали. Отдельно от read_at: «не видел
+    # на сайте» и «не получал уведомления» — разные факты, и путать их нельзя. Человек может
+    # прочитать всё на сайте, ни разу не получив письма, и наоборот.
+    notified_at = models.DateTimeField("сообщено", null=True, blank=True)
 
     class Meta:
         verbose_name = "изменение по делу"
@@ -182,6 +186,14 @@ class UserCaseChange(models.Model):
                 fields=["subscription"],
                 condition=models.Q(read_at__isnull=True),
                 name="ix_change_unread",
+            ),
+            # Под единственный запрос рассылки: «о чём ещё не сообщали». Тоже частичный и по
+            # той же причине — отправленное составит почти всю таблицу и в выборку не
+            # попадает никогда.
+            models.Index(
+                fields=["user"],
+                condition=models.Q(notified_at__isnull=True),
+                name="ix_change_unnotified",
             ),
         ]
 

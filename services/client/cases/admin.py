@@ -35,9 +35,12 @@ class UserCaseChangeAdmin(admin.ModelAdmin):
 
     list_display = (
         "id", "user", "subscription", "event_type",
-        "core_entity_id", "occurred_at", "read_at",
+        "core_entity_id", "occurred_at", "read_at", "notified_at",
     )
-    list_filter = ("event_type", "read_at")
+    # notified_at здесь ради третьего вопроса: «человек говорит, что не получил
+    # уведомления». Пустая колонка означает, что рассылка до строки не дошла, а
+    # заполненная — что дошла, и разбираться надо с каналом доставки.
+    list_filter = ("event_type", "read_at", "notified_at")
     search_fields = ("integration_event_id", "user__username", "subscription__core_case_id")
     # Строки пишет consumer, read_at ставит страница дела. Править их руками незачем.
     readonly_fields = ("integration_event_id", "occurred_at")
