@@ -4,12 +4,18 @@
 Никакого UPDATE здесь нет и быть не должно — событие это факт, а факты не переписывают.
 """
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Case, OutboxEvent, OutboxEventType
+from app.models import Case, OutboxEvent
+
+if TYPE_CHECKING:
+    # Только для типа. Настоящий импорт был бы циклом: app/outbox.py берёт отсюда
+    # CaseFieldChange. Репозиторию от DomainEvent нужны лишь .event_type и .payload —
+    # знать, откуда он взялся, ему незачем.
+    from app.outbox import DomainEvent
 
 
 class OutboxEventRepository:
@@ -18,9 +24,7 @@ class OutboxEventRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def emit(
-        self, case: Case, events: list[tuple[OutboxEventType, dict]]
-    ) -> list[OutboxEvent]:
+    def emit(self, case: Case, events: list["DomainEvent"]) -> list[OutboxEvent]:
         """Записать обнаруженные изменения по делу.
 
         Вызывать в ТОЙ ЖЕ транзакции, что и само обновление карточки: в этом и весь смысл
@@ -29,13 +33,20 @@ class OutboxEventRepository:
 
         Список событий обычно пуст — холостой обход не меняет ничего. Тогда в БД не
         уходит ни одной строки, и это нормальный, самый частый случай.
+
+        flush здесь нужен не только нам: после него у новых Event/CourtSession/Document
+        появляются id, и именно на это рассчитывает сборка integration events
+        (см. app/integration_events.py). Уберёте flush — у всех новых integration events
+        молча опустеет entity_id.
         """
         if not events:
             return []
 
         rows = [
-            OutboxEvent(case_id=case.id, event_type=event_type, payload=payload)
-            for event_type, payload in events
+            OutboxEvent(
+                case_id=case.id, event_type=event.event_type, payload=event.payload
+            )
+            for event in events
         ]
         self._session.add_all(rows)
         self._session.flush()  # чтобы получить id ещё до commit

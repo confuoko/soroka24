@@ -22,6 +22,7 @@ from pathlib import Path
 from celery.exceptions import Retry
 from celery.utils.log import get_task_logger
 
+from app import config
 from app.captcha import CaptchaAttempt
 from app.celery_app import celery_app
 from app.config import COURTS_JSON_PATH, S3_BUCKET
@@ -164,6 +165,57 @@ def enqueue_case_resync(
         args=[case_id, task_id], queue=queue, countdown=countdown
     )
     return task_id
+
+
+@celery_app.task
+def sync_monitored_cases() -> dict:
+    """Ночной прогон: поставить на повторный обход все дела на мониторинге.
+
+    Единственное, что делает эта задача, — ВЫБИРАЕТ дела. Сам обход — существующий
+    resync, тот же, которым идёт ручной прогон из админки и запрос пользователя. Своей
+    логики синхронизации для мониторинга нет и быть не должно: обход дела не зависит от
+    того, почему за ним пошли.
+
+    Каждое дело ставится в очередь ОДИН раз, сколько бы подписчиков у него ни было:
+    флаг живёт на карточке, а не на подписке (см. Case.is_on_monitoring).
+
+    Дела разносятся по времени через countdown. Это не оптимизация, а условие работы:
+    один поход — 25-35 секунд браузера, аренда прокси из ограниченного пула и оплаченная
+    капча. Поставь тысячу дел одновременно — воркеры разберут очередь вперегонки, прокси
+    кончатся, и капча будет оплачена за попытки, которые упадут по таймауту.
+
+    Ошибку постановки одного дела глотаем: из-за одного недоступного дела не должен
+    сорваться прогон остальных. Тихо это не проходит — в лог уходит WARNING, а в отчёте
+    задачи видно расхождение между selected и enqueued.
+    """
+    limit = config.MONITORING_BATCH_LIMIT or None
+    with session_scope() as session:
+        case_ids = CaseRepository(session).list_monitored_ids(limit)
+
+    enqueued = 0
+    for position, case_id in enumerate(case_ids):
+        try:
+            task_id = enqueue_case_resync(
+                case_id,
+                queue="regular",
+                countdown=position * config.MONITORING_SPACING_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning("Дело id=%s не поставлено на обход: %s", case_id, exc)
+            continue
+        # None означает «дела с таким id уже нет» — оно исчезло между выборкой и
+        # постановкой. Считать его поставленным нельзя.
+        if task_id is not None:
+            enqueued += 1
+
+    logger.info(
+        "Ночной прогон: выбрано %s дел, поставлено на обход %s, разнос %s с, лимит %s",
+        len(case_ids),
+        enqueued,
+        config.MONITORING_SPACING_SECONDS,
+        limit or "нет",
+    )
+    return {"selected": len(case_ids), "enqueued": enqueued}
 
 
 @celery_app.task

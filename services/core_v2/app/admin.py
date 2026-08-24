@@ -24,6 +24,7 @@ from app.models import (
     CaseUrl,
     Event,
     Judge,
+    IntegrationOutboxEvent,
     OutboxEvent,
     PlaceHistory,
     Proxy,
@@ -112,7 +113,19 @@ class CaseAdmin(ModelView, model=Case):
     name_plural = "Дела"
     # Суд и номер дела в списке: карточка — это тройка «УИД + суд + номер», по одному
     # УИД строк может быть несколько (разные суды и разные производства).
-    column_list = [Case.id, Case.uid, Case.court, Case.code, Case.application_number, Case.status, Case.created_at]
+    column_list = [
+        Case.id,
+        Case.uid,
+        Case.court,
+        Case.code,
+        Case.application_number,
+        Case.status,
+        # Обходится ли дело по расписанию. Глазами это нужно ровно для одного вопроса:
+        # «почему по делу ничего не приходит» — и первый ответ обычно здесь.
+        Case.is_on_monitoring,
+        Case.last_checked_at,
+        Case.created_at,
+    ]
     column_searchable_list = [Case.uid, Case.code]
 
     @action(
@@ -207,6 +220,32 @@ class OutboxEventAdmin(ModelView, model=OutboxEvent):
         OutboxEvent.created_at,
     ]
     column_searchable_list = [OutboxEvent.case_id]
+
+
+class IntegrationOutboxEventAdmin(ModelView, model=IntegrationOutboxEvent):
+    """Очередь сообщений наружу.
+
+    Смотреть сюда стоит с одним вопросом: есть ли строки с пустым published_at и старым
+    occurred_at. Если есть — publisher не работает, и клиентский сервис не узнаёт об
+    изменениях, хотя core их исправно находит. Снаружи это выглядит как «сервис ничего не
+    присылает», и по одному core причину не найти.
+
+    Только для чтения глазами: строки пишет обход, published_at ставит publisher.
+    """
+
+    name = "Сообщение наружу"
+    name_plural = "Очередь сообщений наружу"
+    column_list = [
+        IntegrationOutboxEvent.id,
+        IntegrationOutboxEvent.case_id,
+        IntegrationOutboxEvent.event_type,
+        IntegrationOutboxEvent.entity_id,
+        IntegrationOutboxEvent.occurred_at,
+        IntegrationOutboxEvent.published_at,
+    ]
+    column_searchable_list = [IntegrationOutboxEvent.case_id]
+    # Свежие сверху: интересует хвост очереди, а не её начало.
+    column_default_sort = [(IntegrationOutboxEvent.id, True)]
 
 
 class SideAdmin(ModelView, model=Side):
@@ -360,6 +399,7 @@ def setup_admin(app) -> Admin:
         DocumentAdmin,
         CourtSessionAdmin,
         OutboxEventAdmin,
+        IntegrationOutboxEventAdmin,
         CaseUrlAdmin,
         SearchTaskAdmin,
         ProxyAdmin,

@@ -24,11 +24,12 @@ from pathlib import Path
 import pytest
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app import main
 from app.courts import CaseNotFound, FetchedCard, UnsupportedCourt
 from app.database import session_scope
-from app.models import Case, Court, OutboxEventType
+from app.models import Case, Court, IntegrationOutboxEvent, OutboxEventType
 from app.repositories import CaseRepository, CourtRepository, OutboxEventRepository
 from app.services import discovery
 from app.services.discovery import discover_case, is_terminal, resync_case
@@ -429,6 +430,60 @@ def test_change_found_on_re_crawl_emits_events(fake_portal, created_cases) -> No
         assert any(
             event.payload.get("state_description") == removed for event in events
         )
+
+
+def test_change_found_on_re_crawl_is_queued_for_publishing(
+    fake_portal, created_cases
+) -> None:
+    """То же изменение попадает и в очередь на публикацию наружу.
+
+    Проверка на НАСТОЯЩЕМ пути обхода, а не на сборке представлений в отрыве: врезка в
+    discovery.py легко ломается порядком вызовов, и цена ошибки — пустой entity_id у всех
+    новых сообщений, причём молча.
+    """
+    first = crawl_url(fake_portal, created_cases, MO_URL, MO_PAGE)
+    case_id = first.saved_case_ids[0]
+
+    with session_scope() as session:
+        case = session.get(Case, case_id)
+        session.delete(case.events[0])
+
+    fake_portal([FetchedCard(html=page(MO_PAGE), source_url=MO_URL)])
+    resync_case(case_id)
+
+    with session_scope() as check:
+        queued = list(
+            check.scalars(
+                select(IntegrationOutboxEvent)
+                .where(IntegrationOutboxEvent.case_id == case_id)
+                .order_by(IntegrationOutboxEvent.id)
+            )
+        )
+
+    assert queued, "изменение не поставлено в очередь на публикацию"
+    new_events = [row for row in queued if row.event_type == "event_new"]
+    assert new_events
+    # Главное: id сущности заполнен. Он появляется только после flush домен-лога, и
+    # перепутанный порядок вызовов в discovery.py оставил бы здесь None.
+    assert all(row.entity_id is not None for row in new_events)
+    # Ещё не опубликовано: publisher — отдельный процесс, обход его не заменяет.
+    assert all(row.published_at is None for row in queued)
+
+
+def test_first_crawl_queues_nothing_for_publishing(fake_portal, created_cases) -> None:
+    """Baseline не публикуется: первый обход не даёт сообщений наружу."""
+    result = crawl_url(fake_portal, created_cases, MO_URL, MO_PAGE)
+
+    with session_scope() as check:
+        queued = list(
+            check.scalars(
+                select(IntegrationOutboxEvent).where(
+                    IntegrationOutboxEvent.case_id == result.saved_case_ids[0]
+                )
+            )
+        )
+
+    assert queued == []
 
 
 def test_events_are_readable_over_http(fake_portal, created_cases) -> None:

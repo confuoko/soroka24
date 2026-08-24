@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}
+  {% if case %}Дело {{ case.code }}{% else %}Дело{% endif %} — Soroka24
+{% endblock %}
+
+{% block content %}
+  {% if core_unavailable %}
+    <div class="warn">
+      Сервис судебных данных сейчас недоступен — карточку показать нечем.
+      Слежение за делом при этом продолжается.
+    </div>
+    <p><a href="{% url 'my-cases' %}">К моим делам</a></p>
+  {% elif not case %}
+    <div class="warn">Этого дела больше нет в сервисе судебных данных.</div>
+    <form method="post" action="{% url 'unsubscribe' subscription.core_case_id %}">
+      {% csrf_token %}<button type="submit">Убрать из моих дел</button>
+    </form>
+  {% else %}
+    <h2>{{ case.code }}</h2>
+    <p class="muted">
+      {{ case.court.name }}{% if case.court.region %}, {{ case.court.region }}{% endif %}
+      {% if case.uid %}<br>УИД: {{ case.uid }}{% endif %}
+    </p>
+
+    {# Ближайшее заседание — акцентный блок: это единственное, что человек хочет узнать
+       быстрее всего. Заседание без результата = ещё не прошло. #}
+    {% for session in case.court_sessions %}
+      {% if not session.result %}
+        <div class="ok">
+          <strong>Заседание {{ session.session_date|date:"d.m.Y H:i" }}</strong>
+          {% if session.place %}<br>{{ session.place }}{% endif %}
+          {% if session.stage %}<br><span class="muted">{{ session.stage }}</span>{% endif %}
+        </div>
+      {% endif %}
+    {% endfor %}
+
+    <h2>Реквизиты</h2>
+    <table>
+      <tr><th>Состояние</th><td>{{ case.status|default:"—" }}</td></tr>
+      {% if case.category %}<tr><th>Категория</th><td>{{ case.category }}</td></tr>{% endif %}
+      {% if case.receipt_date %}<tr><th>Поступило</th><td>{{ case.receipt_date }}</td></tr>{% endif %}
+      {% if case.registration_date %}<tr><th>Зарегистрировано</th><td>{{ case.registration_date }}</td></tr>{% endif %}
+      {% if case.first_instance_decision %}
+        <tr><th>Решение первой инстанции</th><td>{{ case.first_instance_decision }}</td></tr>
+      {% endif %}
+      {% if case.decision_effective_date %}
+        <tr><th>Вступило в силу</th><td>{{ case.decision_effective_date }}</td></tr>
+      {% endif %}
+      {% if case.superior_case_number %}
+        <tr><th>Дело вышестоящей инстанции</th><td>{{ case.superior_case_number }}</td></tr>
+      {% endif %}
+    </table>
+
+    {% if case.judges or case.sides %}
+      <h2>Участники</h2>
+      <table>
+        {% for judge in case.judges %}
+          <tr><th>Судья</th><td>{{ judge.full_name }}</td></tr>
+        {% endfor %}
+        {% for side in case.sides %}
+          <tr><th>{{ side.role|default:side.type }}</th><td>{{ side.full_name }}</td></tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+
+    {% if case.events %}
+      <h2>Движение дела</h2>
+      <table>
+        <tr><th>Дата</th><th>Событие</th><th>Документ</th></tr>
+        {% for event in case.events %}
+          <tr>
+            <td class="muted">{{ event.event_date|date:"d.m.Y H:i" }}</td>
+            <td>{{ event.state_description }}</td>
+            <td class="muted">{{ event.document_str|default:"" }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+
+    {% if case.court_sessions %}
+      <h2>Заседания</h2>
+      <table>
+        <tr><th>Дата</th><th>Место</th><th>Стадия</th><th>Результат</th></tr>
+        {% for session in case.court_sessions %}
+          <tr>
+            <td class="muted">{{ session.session_date|date:"d.m.Y H:i" }}</td>
+            <td>{{ session.place|default:"—" }}</td>
+            <td>{{ session.stage|default:"—" }}</td>
+            <td>{{ session.result|default:"—" }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+
+    {% if case.documents %}
+      <h2>Документы</h2>
+      <table>
+        <tr><th>Дата</th><th>Вид</th></tr>
+        {% for document in case.documents %}
+          {# Ни текстов, ни файлов: сервис их не хранит. Только даты и виды. #}
+          <tr><td class="muted">{{ document.document_date }}</td><td>{{ document.document_type }}</td></tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+
+    {% if case.place_history %}
+      <h2>Местонахождение</h2>
+      <table>
+        <tr><th>Дата</th><th>Где</th><th>Комментарий</th></tr>
+        {% for place in case.place_history %}
+          <tr>
+            <td class="muted">{{ place.place_date|date:"d.m.Y" }}</td>
+            <td>{{ place.place_description|default:"—" }}</td>
+            <td class="muted">{{ place.comment|default:"" }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+
+    <h2>Служебное</h2>
+    <table>
+      {# Обе даты рядом: «не менялось три месяца» и «три месяца не проверяли» — разные
+         вещи, и вторая означает, что что-то сломалось. #}
+      <tr><th>Последнее изменение</th><td>{{ case.last_changed_at|date:"d.m.Y H:i"|default:"—" }}</td></tr>
+      <tr><th>Последняя проверка</th><td>{{ case.last_checked_at|date:"d.m.Y H:i"|default:"—" }}</td></tr>
+      {% for url in case.urls %}
+        <tr><th>Ссылка на портал</th><td><a href="{{ url.url }}" rel="noreferrer">{{ url.url|truncatechars:80 }}</a></td></tr>
+      {% endfor %}
+    </table>
+
+    <p style="margin-top:2rem">
+      <form method="post" action="{% url 'unsubscribe' subscription.core_case_id %}">
+        {% csrf_token %}<button type="submit">Перестать следить</button>
+      </form>
+    </p>
+  {% endif %}
+{% endblock %}

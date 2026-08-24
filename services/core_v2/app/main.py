@@ -11,16 +11,19 @@ from fastapi import FastAPI
 from app.admin import setup_admin
 from app.api.cases import router as cases_router
 from app.api.events import router as events_router
+from app.api.monitoring import router as monitoring_router
 from app.api.search_case import router as search_case_router
 
 app = FastAPI(title="Soroka Core v2", version="0.0.1")
 
 # Запуск обхода и слежение за задачей: POST /search_case, GET /search_case/tasks/{id}.
 app.include_router(search_case_router)
-# Чтение карточки дела: GET /cases/{id}, GET /cases/{id}/summary.
+# Чтение карточек: GET /cases?ids=, GET /cases/{id}, GET /cases/{id}/summary.
 app.include_router(cases_router)
 # Чтение потока изменений: GET /cases/{id}/events.
 app.include_router(events_router)
+# Состав регулярного обхода: PUT /monitoring/cases.
+app.include_router(monitoring_router)
 
 # Админка SQLAdmin на /admin: посмотреть и поправить записи глазами.
 setup_admin(app)

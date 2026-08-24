@@ -92,11 +92,14 @@ def test_field_change_produces_an_event(session, court) -> None:
     changes = sync(session, court, page(status="Рассмотрено"))
     events = changes_to_events(changes)
 
-    assert [event_type for event_type, _ in events] == [
-        OutboxEventType.CASE_FIELD_CHANGED
-    ]
-    payload = events[0][1]
-    assert payload == {"field": "status", "old": "Рассмотрение", "new": "Рассмотрено"}
+    assert [event.event_type for event in events] == [OutboxEventType.CASE_FIELD_CHANGED]
+    assert events[0].payload == {
+        "field": "status",
+        "old": "Рассмотрение",
+        "new": "Рассмотрено",
+    }
+    # У изменения скалярного поля сущности нет: поменялась сама карточка.
+    assert events[0].entity is None
 
 
 def test_new_event_on_the_page_produces_an_event(session, court) -> None:
@@ -110,21 +113,20 @@ def test_new_event_on_the_page_produces_an_event(session, court) -> None:
             state_description="Судебное заседание",
         )
     ]
-    types = [event_type for event_type, _ in changes_to_events(sync(session, court, grown))]
+    events = changes_to_events(sync(session, court, grown))
 
-    assert types == [OutboxEventType.EVENT_NEW]
+    assert [event.event_type for event in events] == [OutboxEventType.EVENT_NEW]
+    # Ссылка на саму новую строку — из неё integration event берёт entity_id.
+    assert events[0].entity is not None
 
 
 def test_removed_event_produces_an_event(session, court) -> None:
     changes = sync(session, court, page())
     session.flush()
 
-    types = [
-        event_type
-        for event_type, _ in changes_to_events(sync(session, court, page(events=[])))
-    ]
+    events = changes_to_events(sync(session, court, page(events=[])))
 
-    assert types == [OutboxEventType.EVENT_REMOVED]
+    assert [event.event_type for event in events] == [OutboxEventType.EVENT_REMOVED]
 
 
 def test_side_reconciliation_produces_two_events(session, court) -> None:
@@ -136,7 +138,7 @@ def test_side_reconciliation_produces_two_events(session, court) -> None:
     session.flush()
 
     changed = page(sides=[ParsedSide(role="Ответчик", full_name="Петров П.П.")])
-    types = {event_type for event_type, _ in changes_to_events(sync(session, court, changed))}
+    types = {event.event_type for event in changes_to_events(sync(session, court, changed))}
 
     assert types == {OutboxEventType.SIDE_ADDED, OutboxEventType.SIDE_REMOVED}
 
@@ -264,8 +266,8 @@ def test_payload_has_no_delivery_fields(session, court) -> None:
     changed = page(status="Рассмотрено", events=[], sides=[], judge_names=[])
 
     forbidden = {"user_id", "sent", "delivered", "notification_status", "email", "telegram_id"}
-    for _, payload in changes_to_events(sync(session, court, changed)):
-        assert not (forbidden & set(payload)), payload
+    for event in changes_to_events(sync(session, court, changed)):
+        assert not (forbidden & set(event.payload)), event.payload
 
 
 def test_payload_is_json_serialisable(session, court) -> None:
@@ -288,5 +290,5 @@ def test_payload_is_json_serialisable(session, court) -> None:
 
     events = changes_to_events(sync(session, court, grown))
     assert events
-    for _, payload in events:
-        json.dumps(payload, ensure_ascii=False)  # упадёт, если внутри осталась дата
+    for event in events:
+        json.dumps(event.payload, ensure_ascii=False)  # упадёт, если внутри осталась дата

@@ -45,9 +45,15 @@ from app.courts import (
 )
 from app.database import session_scope
 from app.models import Case
+from app.integration_events import to_integration_events
 from app.outbox import changes_to_events
 from app.parsers import UnsupportedPage, get_parser
-from app.repositories import CaseRepository, CourtRepository, OutboxEventRepository
+from app.repositories import (
+    CaseRepository,
+    CourtRepository,
+    IntegrationOutboxRepository,
+    OutboxEventRepository,
+)
 from app.services.case_sync import CaseChanges, sync_case
 from app.services.identity import resolve_case_code, resolve_case_uid
 from app.services.proxy_pool import lease_proxy
@@ -321,8 +327,19 @@ def _save_cards(
             #
             # И до коммита, а не после: у удалённых событий и местонахождений атрибуты
             # сейчас ещё загружены в сессию, а после коммита читать их было бы нечем.
-            OutboxEventRepository(session).emit(
-                changes.case, changes_to_events(changes)
+            domain_events = changes_to_events(changes)
+            OutboxEventRepository(session).emit(changes.case, domain_events)
+
+            # Те же изменения — вторым, публичным представлением, и снова в ЭТОЙ
+            # транзакции. Дублирование сознательное: payload домен-лога меняется вместе со
+            # сверкой, а клиентский сервис от таких правок ломаться не должен
+            # (см. app/models/integration_outbox.py).
+            #
+            # ПОСЛЕ emit, и это важно: он флашит, и только после флаша у новых событий,
+            # заседаний и документов появляются id. Позвать раньше — получить пустой
+            # entity_id у всех новых сообщений, причём молча.
+            IntegrationOutboxRepository(session).emit(
+                to_integration_events(changes.case.id, domain_events)
             )
 
     if not result.saved_case_ids:

@@ -1,11 +1,31 @@
-"""Раскладка результата сверки (CaseChanges) в поток событий об изменениях.
+"""Раскладка результата сверки (CaseChanges) в поток domain events об изменениях.
 
-    ParsedCase -> sync_case -> CaseChanges -> changes_to_events -> OutboxEvent
+    ParsedCase -> sync_case -> CaseChanges -> changes_to_events -> DomainEvent
+                                                                    │
+                                                     ┌──────────────┴──────────────┐
+                                                     ▼                             ▼
+                                              OutboxEvent              IntegrationOutboxEvent
+                                              домен-лог, богатый       публичный контракт,
+                                              payload, чтение по HTTP  скудный, уезжает в
+                                                                       RabbitMQ
 
-Каждое атомарное изменение — отдельная строка outbox_event со своим типом и компактным
-payload. Раньше весь дифф уходил одним куском в JSONB-колонку Case.diff_history: оттуда
-нельзя было дёшево выбрать «что изменилось у дела после такого-то момента», а строка дела
+Каждое атомарное изменение — отдельный DomainEvent со своим типом и компактным payload.
+Раньше весь дифф уходил одним куском в JSONB-колонку Case.diff_history: оттуда нельзя было
+дёшево выбрать «что изменилось у дела после такого-то момента», а строка дела
 переписывалась на каждом обходе.
+
+## DomainEvent, а не кортеж
+
+DomainEvent несёт не только тип и payload, но и ССЫЛКУ на изменившуюся строку (entity).
+Она нужна одному потребителю — сборке integration event, которому нужен id сущности
+(«новое событие по делу, id 712»). В payload его нет и быть не должно: там лежит uid,
+детерминированный ключ строки, а не её номер в нашей базе, и добавить туда id значило бы
+поменять публичный формат GET /cases/{id}/events.
+
+ВАЖНО про порядок: у только что созданных строк id появляется только после flush. Значит,
+entity.id читать можно лишь ПОСЛЕ OutboxEventRepository.emit (он флашит) — см.
+app/integration_events.py. До флаша там будет None, и молча: ошибки не случится, просто
+у всех новых событий entity_id окажется пустым.
 
 ## Это НЕ уведомления
 
@@ -28,8 +48,9 @@ changes_to_events вызывается сразу после sync_case и ДО �
 атрибуты в этот момент ещё загружены в сессию, а после коммита читать их было бы уже
 нечем.
 """
+from dataclasses import dataclass
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 from app.models import (
     CourtSession,
@@ -42,6 +63,24 @@ from app.models import (
 )
 from app.repositories import CaseFieldChange
 from app.services.case_sync import CaseChanges
+
+
+@dataclass(frozen=True)
+class DomainEvent:
+    """Одно атомарное изменение по делу, обнаруженное сверкой.
+
+    Факт внутри backend, а не запись в БД: из него делаются и строка домен-лога
+    (outbox_event), и публичный integration event. Сам он ничего о доставке не знает.
+
+    entity — изменившаяся строка (Event, CourtSession, Document, PlaceHistory, Judge,
+    Side) либо None у изменения скалярного поля дела: у «status стал другим» отдельной
+    сущности нет. Держим сам объект, а не его id, потому что у новых строк id появляется
+    только после flush, а DomainEvent собирается до него.
+    """
+
+    event_type: OutboxEventType
+    payload: dict
+    entity: Optional[Any] = None
 
 
 def _iso(value: Optional[date]) -> Optional[str]:
@@ -123,8 +162,8 @@ def _side_to_dict(side: Side) -> dict:
     return {"id": side.id, "full_name": side.full_name, "type": side.type.value}
 
 
-def changes_to_events(changes: CaseChanges) -> list[tuple[OutboxEventType, dict]]:
-    """Разложить результат сверки на плоский список событий (тип, payload).
+def changes_to_events(changes: CaseChanges) -> list[DomainEvent]:
+    """Разложить результат сверки на плоский список domain events.
 
     **У НОВОЙ карточки возвращает пустой список, и это не оптимизация.** Первый обход —
     baseline: вся карточка на нём формально «новая», в ней десятки строк истории
@@ -140,10 +179,14 @@ def changes_to_events(changes: CaseChanges) -> list[tuple[OutboxEventType, dict]
         return []
 
     T = OutboxEventType
-    events: list[tuple[OutboxEventType, dict]] = []
+    events: list[DomainEvent] = []
 
+    # У изменения скалярного поля дела сущности нет: «status стал другим» — это про саму
+    # карточку, и её id integration event несёт отдельным полем.
     for field_change in changes.field_changes:
-        events.append((T.CASE_FIELD_CHANGED, _field_change_to_dict(field_change)))
+        events.append(
+            DomainEvent(T.CASE_FIELD_CHANGED, _field_change_to_dict(field_change))
+        )
 
     # Порядок веток — тот же, что у самой сверки в sync_case: поля дела, события,
     # местонахождения, заседания, документы, судьи, стороны.
@@ -166,6 +209,6 @@ def changes_to_events(changes: CaseChanges) -> list[tuple[OutboxEventType, dict]
         (T.SIDE_REMOVED, changes.removed_sides, _side_to_dict),
     ):
         for item in items:
-            events.append((event_type, to_dict(item)))
+            events.append(DomainEvent(event_type, to_dict(item), entity=item))
 
     return events

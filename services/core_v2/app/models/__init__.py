@@ -23,6 +23,7 @@ from app.models.case_children import CourtSession, Document, Event, PlaceHistory
 from app.models.jobs import SearchTask
 from app.models.fetching import CaptchaSolve, Proxy
 from app.models.outbox import OutboxEvent
+from app.models.integration_outbox import IntegrationOutboxEvent
 
 __all__ = [
     # перечисления
@@ -50,6 +51,7 @@ __all__ = [
     # инфраструктура похода на портал
     "CaptchaSolve",
     "Proxy",
-    # зафиксированные изменения
+    # зафиксированные изменения: домен-лог и очередь на публикацию наружу
     "OutboxEvent",
+    "IntegrationOutboxEvent",
 ]

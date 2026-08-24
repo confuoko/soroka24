@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Мои дела — Soroka24{% endblock %}
+
+{% block content %}
+  <h2>Мои дела</h2>
+
+  {% if core_unavailable %}
+    {# Подписки наши, и показать их надо даже когда core молчит: пустая страница
+       выглядела бы как «дела пропали». #}
+    <div class="warn">
+      Сервис судебных данных сейчас недоступен — номера и статусы дел не показаны.
+      Сами дела на месте, слежение продолжается.
+    </div>
+  {% endif %}
+
+  {% if pending %}
+    <h2>Ищем</h2>
+    <table>
+      <tr><th>Что искали</th><th>Начали</th><th></th></tr>
+      {% for search in pending %}
+        <tr>
+          {# Ни номера, ни УИД тут ещё нет: они станут известны только со страницы суда. #}
+          <td class="muted">{{ search.query|truncatechars:70 }}</td>
+          <td class="muted">{{ search.created_at|date:"d.m.Y H:i" }}</td>
+          <td><a href="{% url 'pending-search' search.pk %}">Как дела?</a></td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
+
+  {% if rows %}
+    <table>
+      <tr>
+        <th>Дело</th>
+        <th>Суд</th>
+        <th>Состояние</th>
+        {# Две даты, и обе нужны: «не менялось три месяца» и «три месяца не проверяли» —
+           разные вещи, и вторая означает, что что-то сломалось. #}
+        <th>Изменено</th>
+        <th>Проверено</th>
+        <th></th>
+      </tr>
+      {% for row in rows %}
+        <tr>
+          <td>
+            <a href="{% url 'case-detail' row.subscription.core_case_id %}">
+              {% if row.summary %}{{ row.summary.code }}{% else %}дело #{{ row.subscription.core_case_id }}{% endif %}
+            </a>
+            {% if row.summary and row.summary.uid %}
+              <div class="muted" style="font-size:.8rem">{{ row.summary.uid }}</div>
+            {% endif %}
+          </td>
+          <td>
+            {% if row.summary %}
+              {{ row.summary.court.name }}
+              <div class="muted" style="font-size:.8rem">{{ row.summary.court.region }}</div>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {# Свободный текст с портала суда, а не enum: цветные бейджи строить не на чем. #}
+            {{ row.summary.status|default:"—" }}
+            {% if row.summary and not row.summary.is_on_monitoring %}
+              {# Подписка есть, а обхода нет: расхождение, о котором надо сказать вслух. #}
+              <div class="err" style="font-size:.8rem">не на обходе</div>
+            {% endif %}
+          </td>
+          <td class="muted">{{ row.summary.last_changed_at|date:"d.m.Y H:i"|default:"—" }}</td>
+          <td class="muted">{{ row.summary.last_checked_at|date:"d.m.Y H:i"|default:"—" }}</td>
+          <td>
+            {% if not row.summary and not core_unavailable %}
+              {# core на связи, а дела не отдал — значит, его там больше нет. #}
+              <span class="err" style="font-size:.8rem">дела нет в сервисе</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% elif not pending %}
+    <p class="muted">Пока ни одного дела. <a href="{% url 'add-case' %}">Добавить</a>.</p>
+  {% endif %}
+{% endblock %}

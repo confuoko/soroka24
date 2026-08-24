@@ -12,11 +12,12 @@
 
 """
 from app.repositories.captcha_solves import CaptchaSolveRepository
-from app.repositories.cases import CaseFieldChange, CaseRepository
+from app.repositories.cases import CaseFieldChange, CaseRepository, MonitoringSync
 from app.repositories.court_sessions import CourtSessionRepository
 from app.repositories.courts import CourtRepository
 from app.repositories.documents import DocumentRepository
 from app.repositories.events import EventRepository
+from app.repositories.integration_outbox import IntegrationOutboxRepository
 from app.repositories.judges import JudgeRepository
 from app.repositories.outbox_events import OutboxEventRepository
 from app.repositories.place_history import PlaceHistoryRepository
@@ -32,7 +33,9 @@ __all__ = [
     "CourtSessionRepository",
     "DocumentRepository",
     "EventRepository",
+    "IntegrationOutboxRepository",
     "JudgeRepository",
+    "MonitoringSync",
     "OutboxEventRepository",
     "PlaceHistoryRepository",
     "ProxyRepository",

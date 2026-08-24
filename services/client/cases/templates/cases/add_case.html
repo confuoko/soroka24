@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Добавить дело — Soroka24{% endblock %}
+
+{% block content %}
+  <h2>Добавить дело</h2>
+
+  <form method="post">
+    {% csrf_token %}
+    {# Ошибки формы (не поля) — это отказы про СУД: «пришлите ссылку», «портал не
+       поддержан». Пользователь ввёл всё правильно, просто портал так не умеет. #}
+    {{ form.non_field_errors }}
+    <p>
+      {{ form.query.label_tag }}<br>
+      {{ form.query }}
+      {{ form.query.errors }}
+      <br><small class="muted">{{ form.query.help_text }}</small>
+    </p>
+    <button type="submit">Найти и следить</button>
+  </form>
+
+  <p class="muted" style="margin-top:2rem">
+    Поиск дела занимает 30–60 секунд: сервис заходит на портал суда и разбирает страницу.
+    Закрывать страницу можно — дело добавится само.
+  </p>
+{% endblock %}

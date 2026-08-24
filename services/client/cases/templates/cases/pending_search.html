@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Ищем дело — Soroka24{% endblock %}
+
+{% block head %}
+  {# Обновление метатегом, а не JS: фронтенд пока не цель, а этой заглушке нечему
+     ломаться. Каждое обновление спрашивает core о судьбе задачи и, если та завершилась,
+     создаёт подписку. Закрытую вкладку добирает resolve_pending_searches. #}
+  {% if pending.is_pending %}<meta http-equiv="refresh" content="3">{% endif %}
+{% endblock %}
+
+{% block content %}
+  <h2>Ищем дело</h2>
+
+  {% if pending.is_pending %}
+    <p>Заходим на портал суда и разбираем страницу. Обычно это 30–60 секунд.</p>
+    <table>
+      <tr><th>Что искали</th><td>{{ pending.query }}</td></tr>
+      <tr><th>Начали</th><td>{{ pending.created_at|date:"d.m.Y H:i:s" }}</td></tr>
+      {% if task %}
+        <tr><th>Попыток зайти на страницу</th><td>{{ task.attempts }}</td></tr>
+        {% if task.last_error %}
+          {# Техническая строка вроде «403» или «captcha timeout» — прячем под
+             подробности: сама по себе она пользователю ничего не говорит. #}
+          <tr><th>Подробности</th><td class="muted">{{ task.last_error }}</td></tr>
+        {% endif %}
+      {% endif %}
+    </table>
+    <p class="muted">
+      Страница обновляется сама. Можно закрыть — дело добавится и без открытой вкладки.
+    </p>
+  {% else %}
+    <div class="warn">
+      Не получилось найти дело.
+      {% if pending.last_error %}<br><span class="muted">{{ pending.last_error }}</span>{% endif %}
+    </div>
+    <p><a href="{% url 'add-case' %}">Попробовать другую ссылку</a></p>
+  {% endif %}
+
+  <p><a href="{% url 'my-cases' %}">К моим делам</a></p>
+{% endblock %}

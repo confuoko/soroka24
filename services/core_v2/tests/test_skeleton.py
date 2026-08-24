@@ -104,10 +104,26 @@ def test_every_route_is_registered() -> None:
         "/ping",
         "/search_case",
         "/search_case/tasks/{task_id}",
+        "/cases",
         "/cases/{case_id}",
         "/cases/{case_id}/summary",
         "/cases/{case_id}/events",
+        "/monitoring/cases",
     }
+
+
+def test_case_list_route_is_not_shadowed() -> None:
+    """GET /cases не перехватывается роутом /cases/{case_id}.
+
+    Ловушка порядка объявления: путь /cases/summary попал бы в /cases/{case_id} и упал
+    бы с 422 на попытке разобрать «summary» как int. Отсюда и форма /cases?ids=.
+    Проверка нужна потому, что достаточно объявить роуты в другом порядке — и список
+    перестанет открываться, а тесты самой выборки этого не заметят.
+    """
+    with TestClient(app) as client:
+        response = client.get("/cases", params={"ids": "0"})
+    assert response.status_code == 200, response.text
+    assert response.json() == []
 
 
 def test_all_routes_are_sync() -> None:
@@ -156,10 +172,32 @@ def test_database_url_points_to_its_own_database() -> None:
     )
 
 
-def test_no_monitoring_settings_left() -> None:
-    """Настроек пользовательского мониторинга в core_v2 нет (ТЗ PRIORITY 2)."""
-    leaked = [name for name in vars(config) if name.startswith("MONITORING_")]
-    assert not leaked, f"остались настройки мониторинга: {leaked}"
+def test_monitoring_settings_are_about_timing_only() -> None:
+    """Настройки мониторинга отвечают на «когда», а не на «за чем следить».
+
+    Граница ответственности: какие дела интересны — знание клиентского сервиса, оно
+    приходит запросом PUT /monitoring/cases. Core распоряжается только временем обхода.
+    Появись здесь настройка вида MONITORING_USER_* или интервал на пользователя — значит,
+    знание о подписках просочилось в core, и обратно его уже не вынуть.
+    """
+    names = {name for name in vars(config) if name.startswith("MONITORING_")}
+    assert names == {
+        "MONITORING_HOUR",
+        "MONITORING_SPACING_SECONDS",
+        "MONITORING_BATCH_LIMIT",
+    }, f"неожиданный состав настроек мониторинга: {sorted(names)}"
+
+
+def test_core_knows_nothing_about_users() -> None:
+    """В схеме core нет ни пользователей, ни подписок.
+
+    Мониторинг в core вернулся, пользователи — нет и не должны. Флаг is_on_monitoring
+    живёт на карточке ровно потому, что дело обходится один раз независимо от числа
+    подписчиков; таблица подписок здесь означала бы, что граница поехала.
+    """
+    tables = set(Base.metadata.tables)
+    forbidden = {"user", "users", "subscription", "case_subscription", "notification"}
+    assert not (forbidden & tables), f"в схеме core появились: {sorted(forbidden & tables)}"
 
 
 def test_removed_tables_are_absent_from_metadata() -> None:
@@ -181,23 +219,34 @@ def test_removed_columns_are_absent_from_models() -> None:
     """Колонок, снятых вместе с мониторингом и мёртвым кодом, у моделей нет."""
     from app.models import Case, Document, Event
 
-    assert not hasattr(Case, "monitoring_enabled")
     assert not hasattr(Case, "case_link_id")
     assert not hasattr(Case, "related_case_ids")
     assert not hasattr(Document, "document_text")
     assert not hasattr(Event, "document_id")
 
-    # А эти две остались: это факты о деле, а не мониторинг.
+    # Имя старого флага не должно вернуться: у него была другая семантика — им
+    # распоряжался сам core. Нынешним is_on_monitoring распоряжается клиентский сервис.
+    assert not hasattr(Case, "monitoring_enabled")
+
+    # А эти остались: факты о деле плюс флаг регулярного обхода.
     assert hasattr(Case, "last_checked_at")
     assert hasattr(Case, "last_changed_at")
+    assert hasattr(Case, "is_on_monitoring")
 
 
-def test_case_repository_has_no_monitoring_methods() -> None:
-    """Выбором дел для обхода core_v2 не занимается (ТЗ PRIORITY 2)."""
+def test_monitoring_is_replaced_wholesale_not_per_user() -> None:
+    """У репозитория есть замещение списка целиком и нет включения по одному делу.
+
+    Форма важна: set_monitoring(case, enabled) вернула бы нас к тумблеру на дело, а
+    тумблер невозможно свести с состоянием клиента — два потерянных запроса, и списки
+    разошлись навсегда. Замещение всего списка идемпотентно и сходится с любого
+    расхождения за один вызов.
+    """
     from app.repositories import CaseRepository
 
+    assert hasattr(CaseRepository, "set_monitoring_list")
+    assert hasattr(CaseRepository, "list_monitored_ids")
     assert not hasattr(CaseRepository, "set_monitoring")
-    assert not hasattr(CaseRepository, "list_monitored_ids")
 
 
 def test_utc_datetime_is_timezone_aware() -> None:

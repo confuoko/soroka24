@@ -1,0 +1,14 @@
+{# Стандартная LoginView из django.contrib.auth.urls — своей вьюхи не нужно. #}
+{% extends "base.html" %}
+{% block title %}Вход — Soroka24{% endblock %}
+{% block content %}
+  <h2>Вход</h2>
+  {% if form.errors %}
+    <div class="warn">Неверный логин или пароль.</div>
+  {% endif %}
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Войти</button>
+  </form>
+{% endblock %}

@@ -1,0 +1,59 @@
+{# Скелет страницы. Красивый фронтенд пока не цель (ТЗ §9) — нужен работающий vertical
+   slice, поэтому здесь только читаемая типографика и никаких зависимостей. #}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Soroka24{% endblock %}</title>
+  {% block head %}{% endblock %}
+  <style>
+    body { font: 16px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+           max-width: 60rem; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    header { display: flex; gap: 1rem; align-items: baseline;
+             border-bottom: 1px solid #ddd; padding-bottom: .5rem; margin-bottom: 1.5rem; }
+    header nav { margin-left: auto; display: flex; gap: 1rem; align-items: baseline; }
+    h1 { font-size: 1.4rem; margin: 0; }
+    h2 { font-size: 1.1rem; margin: 2rem 0 .5rem; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #eee;
+             vertical-align: top; }
+    th { font-weight: 600; color: #555; font-size: .85rem; }
+    .muted { color: #777; }
+    .warn { background: #fff6e5; border-left: 3px solid #e6a23c; padding: .6rem 1rem;
+            margin: 1rem 0; }
+    .ok { background: #f0f9eb; border-left: 3px solid #67c23a; padding: .6rem 1rem;
+          margin: 1rem 0; }
+    .err { color: #c0392b; }
+    ul.errorlist { color: #c0392b; padding-left: 1.2rem; margin: .3rem 0; }
+    form.inline { display: inline; }
+    button { font: inherit; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><a href="{% url 'my-cases' %}" style="text-decoration:none;color:inherit">Soroka24</a></h1>
+    <nav>
+      {% if user.is_authenticated %}
+        <a href="{% url 'my-cases' %}">Мои дела</a>
+        <a href="{% url 'add-case' %}">Добавить дело</a>
+        <span class="muted">{{ user.get_username }}</span>
+        {# POST, потому что выход меняет состояние: по GET-ссылке мог бы пройти префетчер. #}
+        <form class="inline" method="post" action="{% url 'logout' %}">
+          {% csrf_token %}<button type="submit">Выйти</button>
+        </form>
+      {% else %}
+        <a href="{% url 'login' %}">Войти</a>
+      {% endif %}
+    </nav>
+  </header>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="{% if message.tags == 'success' %}ok{% else %}warn{% endif %}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  {% block content %}{% endblock %}
+</body>
+</html>

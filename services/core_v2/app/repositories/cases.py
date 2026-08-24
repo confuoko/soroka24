@@ -1,9 +1,9 @@
 """Доступ к карточкам дел (Case) и их адресам (CaseUrl) в БД."""
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import Case, CaseUrl, Court
@@ -38,6 +38,24 @@ class CaseFieldChange:
     field: str
     old: Any
     new: Any
+
+
+@dataclass(frozen=True)
+class MonitoringSync:
+    """Итог приведения списка дел на мониторинге к присланному.
+
+    Возвращается наружу целиком, а не одним числом: клиентскому сервису нужны обе
+    величины, чтобы отличить «ничего не поменялось, всё уже так» от «запрос ничего не
+    нашёл». unknown_ids — то, из-за чего этот dataclass вообще существует: id, которых в
+    базе нет. Значит, у клиента есть подписка на дело, а дела у нас уже (или ещё) нет, и
+    молчать об этом нельзя — иначе расхождение живёт незамеченным, а пользователь ждёт
+    обновлений по делу, которое никто не обходит.
+    """
+
+    monitored: int        # сколько дел на мониторинге ПОСЛЕ операции
+    added: int            # сколько дел флаг получили
+    removed: int          # сколько дел флаг потеряли
+    unknown_ids: list[int]  # присланные id, которых нет в базе
 
 
 class CaseRepository:
@@ -113,6 +131,28 @@ class CaseRepository:
             select(Case).where(Case.id == case_id).options(selectinload(Case.court))
         )
 
+    def list_summaries(self, case_ids: Iterable[int]) -> list[Case]:
+        """Дела по списку id, с загруженными судами и без остальных связей.
+
+        Тот же набор данных, что у get_with_court, но за один запрос на всю страницу
+        клиента вместо запроса на дело. selectinload здесь даёт ровно два SQL на любое
+        число дел: один за карточками, один за судами.
+
+        Отсутствующих id в ответе просто нет — это список, и его длина сама по себе
+        осмысленный ответ.
+        """
+        ids = list(case_ids)
+        if not ids:
+            return []
+        return list(
+            self._session.scalars(
+                select(Case)
+                .where(Case.id.in_(ids))
+                .options(selectinload(Case.court))
+                .order_by(Case.id)
+            )
+        )
+
     def get_by_url(self, url: str) -> Optional[Case]:
         """Карточка по ссылке на неё (адрес уникален глобально).
 
@@ -174,6 +214,95 @@ class CaseRepository:
         if changed:
             case.last_changed_at = checked_at
 
+    # ------------------------------------------------------------- мониторинг
+    def set_monitoring_list(self, case_ids: Iterable[int]) -> MonitoringSync:
+        """Привести список дел на мониторинге к присланному.
+
+        Семантика — ЗАМЕЩЕНИЕ, а не добавление: после вызова на мониторинге ровно эти
+        дела. Такая форма выбрана потому, что клиентский сервис знает своё состояние
+        целиком и не знает нашего: присылать дифф ему было бы нечем, а разошедшиеся
+        состояния он бы уже не свёл.
+
+        Идемпотентна по построению: условия обоих UPDATE отбирают только строки, которым
+        флаг НАДО поменять, поэтому повторный вызов с тем же списком меняет 0 строк.
+        Отсюда и осмысленные added/removed — это «сколько реально переключилось», а не
+        «сколько прислали».
+
+        Двумя UPDATE, а не выборкой в питон и циклом: список дел на мониторинге растёт с
+        числом подписок, а обе операции целиком выражаются в SQL.
+
+        synchronize_session="fetch" — чтобы уже загруженные в сессию Case увидели новое
+        значение флага. В самом эндпоинте сессия свежая и синхронизировать нечего, но в
+        тестах объекты живут рядом с запросом, и без этого они молча остались бы со
+        старым значением.
+
+        Коммит — на вызывающей стороне, как во всех репозиториях.
+        """
+        ids = sorted(set(case_ids))
+
+        # Чего нет в базе — отдаём наверх. Отдельным запросом, потому что UPDATE про
+        # ненайденные строки ничего сказать не может: rowcount не отличает «такого дела
+        # нет» от «флаг уже стоял».
+        known = (
+            set(self._session.scalars(select(Case.id).where(Case.id.in_(ids))))
+            if ids
+            else set()
+        )
+        unknown_ids = [case_id for case_id in ids if case_id not in known]
+
+        options = {"synchronize_session": "fetch"}
+
+        added = 0
+        if ids:
+            added = self._session.execute(
+                update(Case)
+                .where(Case.id.in_(ids), Case.is_on_monitoring.is_(False))
+                .values(is_on_monitoring=True)
+                .execution_options(**options),
+            ).rowcount
+
+        # Снимаем флаг со всего, чего в списке нет. Пустой список — законный случай
+        # («ни на что больше не подписаны»), и тогда снимается со всех.
+        removal = update(Case).where(Case.is_on_monitoring.is_(True))
+        if ids:
+            removal = removal.where(Case.id.not_in(ids))
+        removed = self._session.execute(
+            removal.values(is_on_monitoring=False).execution_options(**options),
+        ).rowcount
+
+        monitored = self._session.scalar(
+            select(func.count()).select_from(Case).where(Case.is_on_monitoring.is_(True))
+        )
+        return MonitoringSync(
+            monitored=monitored or 0,
+            added=added,
+            removed=removed,
+            unknown_ids=unknown_ids,
+        )
+
+    def list_monitored_ids(self, limit: Optional[int] = None) -> list[int]:
+        """id дел на мониторинге; самые давно не проверявшиеся первыми.
+
+        Порядок не косметика, а страховка от лимита. При limit каждый прогон берёт первые
+        N — и если сортировать по id, эти N обходились бы каждые сутки, а хвост списка не
+        обошёлся бы никогда. Сортировка по last_checked_at делает выборку честной
+        очередью: обойдённое уезжает в конец само.
+
+        NULLS FIRST — потому что NULL здесь значит «не проверяли ни разу»: такое дело
+        ждёт обхода дольше всех остальных.
+
+        id, а не объекты: планировщику нужно только поставить задачи в очередь, и тащить
+        карточки со связями ради этого незачем.
+        """
+        query = (
+            select(Case.id)
+            .where(Case.is_on_monitoring.is_(True))
+            .order_by(Case.last_checked_at.asc().nullsfirst(), Case.id)
+        )
+        if limit:
+            query = query.limit(limit)
+        return list(self._session.scalars(query))
+
     @staticmethod
     def primary_url(case: Case) -> Optional[str]:
         """Каким адресом ходить за карточкой при повторном обходе.
@@ -201,7 +330,7 @@ class CaseRepository:
 
         Возвращает (дело, список изменившихся полей, признак «карточка только что
         заведена»). Признак нужен выше по стеку: на первом обходе вся карточка формально
-        новая, и события мониторинга по ней не рассылаются (см. app/monitoring/outbox.py).
+        новая, и события об изменениях по ней не выпускаются (см. app/outbox.py).
 
         По списку изменившихся полей строится дифф:
         смена «Текущего состояния», появление решения первой инстанции и т.п. должны быть

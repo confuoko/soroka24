@@ -3,21 +3,23 @@
 # Контейнеры:
 #   инфраструктура (готовые образы): postgres, rabbitmq, redis, minio
 #   core_v2 (FastAPI + Celery):      core-v2-api, core-v2-worker-urgent,
-#                                    core-v2-worker-regular
+#                                    core-v2-worker-regular, core-v2-beat,
+#                                    core-v2-outbox-publisher
+#   клиентский сервис (Django):      client-web, client-consumer
 #
-# Воркеры собираются из ОДНОГО образа и отличаются только очередью, которую слушают
-# (-Q urgent / -Q regular).
+# Все контейнеры core_v2 собираются из ОДНОГО образа и отличаются только командой:
+# воркеры — очередью, которую слушают (-Q urgent / -Q regular), beat — тем, что не
+# работает, а раздаёт работу по расписанию.
+#
+# core-v2-beat нужен в ЕДИНСТВЕННОЙ реплике: два планировщика поставят ночной обход
+# дважды, то есть удвоят расход прокси и оплаченной капчи.
 #
 # Чего здесь нет и почему:
 #
-#   * контейнера beat. В старом core он гонял ночной обход дел «на мониторинге». Ни
-#     флага мониторинга, ни планировщика в core_v2 нет: решать, какие дела и когда
-#     переобходить, будет сервис, который знает пользователей. Core умеет только
-#     «обойди это дело сейчас»;
 #   * сервисов старого core. Он остался на диске как reference implementation — его
 #     читают и по нему сверяют поведение, но не запускают. Тесты гоняются локально;
-#   * сервисов Django-клиента. Он удалён; новый клиент будет отдельным сервисом и
-#     станет обращаться к core по HTTP.
+#   * ничего существенного. Оба сервиса собраны целиком; клиентские контейнеры
+#     (client-web и client-consumer) идут из ОДНОГО образа и отличаются командой.
 
 # Общие настройки трёх контейнеров core_v2: образ и переменные окружения у них одни,
 # различается только команда запуска. Блок вынесен на верхний уровень, чтобы его нельзя
@@ -32,6 +34,19 @@ x-core-v2: &core-v2
     ADMIN_USERNAME: ${ADMIN_USERNAME}
     ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY}
+    # Ночной обход дел на мониторинге. Задаются ВСЕМ контейнерам, а не только beat:
+    # час прогона читает планировщик, а разнос и лимит — сама задача, то есть воркер.
+    MONITORING_HOUR: ${MONITORING_HOUR}
+    MONITORING_SPACING_SECONDS: ${MONITORING_SPACING_SECONDS}
+    MONITORING_BATCH_LIMIT: ${MONITORING_BATCH_LIMIT}
+    # Публикация изменений наружу. Имена exchange и очереди задаются всем контейнерам, а
+    # не только publisher'у: расхождение имён между процессами — худший из возможных
+    # багов здесь, сообщения уходили бы в никуда и молча.
+    INTEGRATION_BROKER_URL: ${INTEGRATION_BROKER_URL}
+    CASE_CHANGES_EXCHANGE: ${CASE_CHANGES_EXCHANGE}
+    CASE_CHANGES_QUEUE: ${CASE_CHANGES_QUEUE}
+    PUBLISHER_POLL_SECONDS: ${PUBLISHER_POLL_SECONDS}
+    PUBLISHER_BATCH_SIZE: ${PUBLISHER_BATCH_SIZE}
     # Ходить на портал только через прокси из таблицы proxy (пустой пул = отказ).
     COURT_PROXY_REQUIRED: ${COURT_PROXY_REQUIRED}
     # Разгадывание капчи на порталах движка msudrf.ru.
@@ -158,6 +173,87 @@ services:
   core-v2-worker-regular:
     <<: *core-v2
     command: celery -A app.celery_app worker -Q regular -l info --concurrency=4
+
+  # Планировщик: раз в сутки ставит дела с флагом is_on_monitoring на повторный обход.
+  # Сам ничего не обходит — только кладёт задачи в regular.
+  #
+  # РОВНО ОДНА реплика. Два beat — два ночных прогона, то есть двойной расход прокси и
+  # оплаченной капчи на тот же результат.
+  #
+  # Файл состояния расписания — в /tmp, а не в примонтированном ./services/core_v2:
+  # это служебный shelve-файл процесса, ему нечего делать в репозитории (в .gitignore
+  # он уже перечислен именно потому, что в старом core лежал не там).
+  core-v2-beat:
+    <<: *core-v2
+    command: >
+      celery -A app.celery_app beat -l info
+      --schedule=/tmp/celerybeat-schedule
+
+  # Publisher: увозит найденные изменения из integration_outbox_event в очередь
+  # case_changes. Сам ничего не обходит и в портал не ходит.
+  #
+  # Отдельный процесс, а не часть обхода, чтобы сохранение судебных данных не зависело от
+  # доступности брокера: упал RabbitMQ — дело всё равно сохранится, а сообщение уедет
+  # позже. В этом и весь смысл Transactional Outbox.
+  #
+  # Реплика нужна одна, но несколько не сломают: порция берётся через
+  # FOR UPDATE SKIP LOCKED, поэтому второй publisher возьмёт следующие строки, а не те же.
+  core-v2-outbox-publisher:
+    <<: *core-v2
+    command: python -m app.integration_publisher
+
+  # ------------------------------------------------------- клиентский сервис
+  # Обычный Django: пользователи, подписки, UI. Судебных данных у него нет — он берёт их
+  # у core по HTTP (CORE_API_URL) и себе НЕ копирует.
+  #
+  # База своя, отдельная от soroka_core_v2: две ORM на одних таблицах ломаются на каждой
+  # миграции. Playwright и браузера в образе нет — на порталы ходит core.
+  client-web:
+    build: ./services/client
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8001 --reload"
+    environment: &client-env
+      TZ: ${TZ}
+      CLIENT_DATABASE_URL: ${CLIENT_DATABASE_URL}
+      CORE_API_URL: ${CORE_API_URL}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: ${DJANGO_DEBUG}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+      # Подписчику очереди (Phase 5) понадобятся те же имена, что у publisher'а core.
+      INTEGRATION_BROKER_URL: ${INTEGRATION_BROKER_URL}
+      CASE_CHANGES_EXCHANGE: ${CASE_CHANGES_EXCHANGE}
+      CASE_CHANGES_QUEUE: ${CASE_CHANGES_QUEUE}
+    volumes:
+      - ./services/client:/app
+    ports:
+      - "8001:8001"      # http://localhost:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # Подписчик очереди case_changes: держит соединение открытым и получает факт изменения
+  # сразу, как только core его опубликовал. Тот же образ, что у client-web.
+  #
+  # Реплик может быть несколько, в отличие от publisher'а и beat: RabbitMQ отдаёт каждое
+  # сообщение ОДНОМУ подписчику, а обработка идемпотентна.
+  #
+  # Миграции здесь НЕ накатываем — это делает client-web. Две команды, гоняющие migrate
+  # одновременно, боролись бы за блокировку таблицы django_migrations.
+  client-consumer:
+    build: ./services/client
+    command: python manage.py consume_case_events
+    environment:
+      <<: *client-env
+    volumes:
+      - ./services/client:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
 volumes:
   postgres_data:
