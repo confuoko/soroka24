@@ -152,11 +152,11 @@ def test_no_court_tables_in_the_schema() -> None:
 
 
 def test_only_our_own_tables_are_ours() -> None:
-    """Приложение cases заводит ровно две таблицы: подписки и ожидания.
+    """Приложение cases заводит ровно три таблицы: подписки, ожидания, изменения.
 
-    Третья означала бы, что в клиент прокралась сущность, которой по ТЗ §2 здесь пока не
-    место — тариф, папка, интервал мониторинга. UserCaseChange добавится в Phase 6, и
-    этот тест придётся обновить осознанно.
+    Четвёртая означала бы, что в клиент прокралась сущность, которой по ТЗ §2 здесь пока не
+    место — тариф, папка, интервал мониторинга, модель Notification. Список меняется только
+    осознанно, вместе с этим тестом.
     """
     ours = {
         name
@@ -164,4 +164,8 @@ def test_only_our_own_tables_are_ours() -> None:
         if name.startswith("cases_")
     }
 
-    assert ours == {"cases_casesubscription", "cases_pendingcasesearch"}
+    assert ours == {
+        "cases_casesubscription",
+        "cases_pendingcasesearch",
+        "cases_usercasechange",
+    }

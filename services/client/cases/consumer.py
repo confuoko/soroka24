@@ -29,7 +29,16 @@ at-least-once, и то же сообщение может прийти дваж�
 уходит из очереди с громким WARNING в логе.
 
 RETRY — только для того, что действительно пройдёт со второго раза: недоступная база,
-таймаут. Пока consumer только логирует, этот исход не встречается; он появится в Phase 6.
+таймаут. Терять изменение из-за того, что у НАС не сложилось, нельзя.
+
+## Идемпотентность
+
+Сообщение придёт повторно после любого сбоя на пути, и это штатно. Защита — UNIQUE
+`(user, integration_event_id)` плюс `bulk_create(ignore_conflicts=True)`: повторная доставка
+не создаёт вторых строк, причём ОДНИМ запросом, без предварительного SELECT.
+
+Именно без него: проверка «а нет ли уже такой строки» между SELECT и INSERT оставляет окно,
+в которое пролезет второй consumer, и счётчик непрочитанного у пользователя удвоится.
 """
 import json
 import logging
@@ -39,6 +48,9 @@ from enum import Enum
 from typing import Optional
 
 from django.conf import settings
+from django.db import DatabaseError, transaction
+
+from cases.models import CaseSubscription, UserCaseChange
 
 logger = logging.getLogger(__name__)
 
@@ -129,13 +141,52 @@ def parse(body: bytes) -> CaseChange:
     )
 
 
-def handle(body: bytes) -> Outcome:
-    """Обработать одно сообщение и сказать, что с ним делать в очереди.
+def fan_out(change: CaseChange) -> int:
+    """Разложить изменение по активным подписчикам дела. Возвращает число подписчиков.
 
-    Пока только логирует: цепочку «core → outbox → RabbitMQ → Django» надо сначала
-    увидеть работающей целиком, и лишний код на этом шаге только мешал бы понять, где она
-    рвётся (ТЗ, Phase 5). Раскладка по подписчикам — Phase 6, она встанет здесь же.
+    Одно изменение в core → столько строк, сколько подписчиков. Дело при этом обошли один
+    раз: размножается не работа, а знание о том, кому уже показано.
+
+    `ignore_conflicts=True` и есть идемпотентность. Повторно доставленное сообщение
+    натыкается на UNIQUE `(user, integration_event_id)` и молча пропускается — одним
+    запросом. Заодно это значит, что повторная доставка не трогает уже проставленный
+    `read_at`: конфликтующая строка не обновляется, а пропускается.
+
+    Подписчиков может не оказаться вовсе, и это не ошибка: между обходом дела и доставкой
+    сообщения последний подписчик мог отписаться. Сообщение всё равно обработано —
+    возвращать его в очередь незачем, подписчики от этого не появятся.
+
+    Одна транзакция на всё: либо изменение увидели все подписчики, либо никто.
     """
+    subscriptions = list(
+        CaseSubscription.objects.filter(
+            core_case_id=change.case_id, is_active=True
+        ).only("id", "user_id")
+    )
+    if not subscriptions:
+        return 0
+
+    with transaction.atomic():
+        UserCaseChange.objects.bulk_create(
+            [
+                UserCaseChange(
+                    user_id=subscription.user_id,
+                    subscription=subscription,
+                    integration_event_id=change.id,
+                    event_type=change.type,
+                    core_entity_id=change.entity_id,
+                    occurred_at=change.occurred_at,
+                )
+                for subscription in subscriptions
+            ],
+            ignore_conflicts=True,
+        )
+
+    return len(subscriptions)
+
+
+def handle(body: bytes) -> Outcome:
+    """Обработать одно сообщение и сказать, что с ним делать в очереди."""
     try:
         change = parse(body)
     except Malformed as exc:
@@ -146,9 +197,17 @@ def handle(body: bytes) -> Outcome:
         )
         return Outcome.MALFORMED
 
+    try:
+        subscribers = fan_out(change)
+    except DatabaseError:
+        # У НАС не сложилось: база недоступна, дедлок, кончились соединения. Причина
+        # временная, поэтому переспрашиваем — терять изменение из-за своей же проблемы
+        # нельзя.
+        logger.exception("Изменение #%s не разложено, вернём в очередь", change.id)
+        return Outcome.RETRY
+
     logger.info(
-        "Изменение #%s: %s по делу %s (сущность %s, обнаружено %s)",
-        change.id, change.type, change.case_id, change.entity_id,
-        change.occurred_at.isoformat(),
+        "Изменение #%s: %s по делу %s (сущность %s) → подписчиков %s",
+        change.id, change.type, change.case_id, change.entity_id, subscribers,
     )
     return Outcome.PROCESSED

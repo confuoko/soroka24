@@ -8,7 +8,7 @@
 Что знает этот сервис и не знает core:
 
     какие дела интересны пользователям  →  подписки
-    что кому уже показано              →  unread (UserCaseChange, Phase 6)
+    что кому уже показано              →  unread (UserCaseChange)
     кто чего ждёт прямо сейчас         →  PendingCaseSearch
 
 Обратное тоже верно: этот сервис не знает, как устроены сайты судов, и знать не должен.
@@ -114,3 +114,81 @@ class PendingCaseSearch(models.Model):
     def is_pending(self) -> bool:
         return self.resolved_at is None
 
+
+class UserCaseChange(models.Model):
+    """Для этого пользователя по подписанному делу есть изменение.
+
+    **Это НЕ копия судебного события.** Строка означает «Наташе есть что показать по делу
+    481», а не «в деле 481 случилось вот что». Судебных данных здесь нет: `event_type` и
+    `core_entity_id` — указатели, по которым подробности берутся у core при показе.
+
+    Одно изменение в core превращается в СТОЛЬКО строк, сколько у дела активных
+    подписчиков. Дело при этом обходится один раз: размножается не работа, а знание о том,
+    кому уже показано. Обратное — одна строка на изменение плюс отдельная память о том, кто
+    её видел, — потребовало бы второй таблицы ровно того же размера.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="case_changes",
+        verbose_name="пользователь",
+    )
+    # Формально избыточна — user есть и у подписки, — но нужна обоим: по ней страница дела
+    # считает непрочитанное без join по core_case_id, а UNIQUE ниже требует user отдельной
+    # колонкой. Удалили подписку — уносим и изменения: показывать «новое» по делу, за
+    # которым больше не следят, незачем.
+    subscription = models.ForeignKey(
+        CaseSubscription,
+        on_delete=models.CASCADE,
+        related_name="changes",
+        verbose_name="подписка",
+    )
+    # id СООБЩЕНИЯ из core (integration_outbox_event.id), а не id судебного события. На нём
+    # держится идемпотентность: доставка at-least-once, и то же сообщение придёт повторно
+    # после любого сбоя на пути.
+    integration_event_id = models.BigIntegerField("id сообщения из core")
+    # Тип строкой, как пришёл. НЕ choices: core публикует все 16 типов и добавит новые, а
+    # новый тип не должен требовать миграции здесь — максимум правки текста в шаблоне.
+    event_type = models.CharField("тип изменения", max_length=32)
+    # id изменившейся сущности в core: события, заседания, документа. Пусто у изменения
+    # скалярного поля дела — там поменялась сама карточка, отдельной сущности нет.
+    core_entity_id = models.BigIntegerField("id сущности в core", null=True, blank=True)
+    # Когда core обнаружил изменение, а не когда мы его получили.
+    occurred_at = models.DateTimeField("обнаружено")
+    # Пусто — пользователь ещё не видел.
+    read_at = models.DateTimeField("прочитано", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "изменение по делу"
+        verbose_name_plural = "изменения по делам"
+        constraints = [
+            # ГЛАВНОЕ ограничение этой таблицы. Доставка at-least-once: повторно
+            # доставленное сообщение обязано не создать второй строки, иначе у пользователя
+            # удвоится счётчик непрочитанного после любого сбоя на пути.
+            #
+            # Идемпотентность держится на нём, а не на проверке в коде: проверка «а нет ли
+            # уже такой строки» между SELECT и INSERT оставляет окно, в которое пролезет
+            # второй consumer.
+            models.UniqueConstraint(
+                fields=["user", "integration_event_id"], name="uq_change_user_event"
+            ),
+        ]
+        indexes = [
+            # Под единственный частый запрос: «сколько непрочитанного по этой подписке».
+            # Частичный — прочитанное составит почти всю таблицу и в этом запросе не
+            # участвует никогда.
+            models.Index(
+                fields=["subscription"],
+                condition=models.Q(read_at__isnull=True),
+                name="ix_change_unread",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        state = "прочитано" if self.read_at else "новое"
+        return f"{self.event_type} по подписке #{self.subscription_id} ({state})"
+
+    @property
+    def is_unread(self) -> bool:
+        return self.read_at is None

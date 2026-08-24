@@ -15,6 +15,11 @@ from django.test import override_settings
 
 from cases.consumer import CaseChange, Malformed, Outcome, handle, parse
 
+# handle() теперь раскладывает изменение по подписчикам, то есть трогает базу. Тесты
+# разбора при этом остаются про разбор: подписок здесь нет ни у одного, поэтому раскладка
+# честно находит ноль подписчиков и ничего не пишет.
+pytestmark = pytest.mark.django_db
+
 GOOD = {
     "id": 1502,
     "type": "event_new",

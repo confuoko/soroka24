@@ -933,7 +933,7 @@ core_v2
 ```
 User → CaseSubscription   → core_case_id
      → PendingCaseSearch  → core_task_id   (ждём ответа по ссылке)
-     → UserCaseChange      (unread, Phase 6)
+     → UserCaseChange     → integration_event_id (unread)
 ```
 
 Клиент хранит, кто на что подписан и что кому уже показано, а судебные данные для
@@ -1037,6 +1037,13 @@ DomainEvent(event_type, payload, entity)
 не будет, просто у всех новых сообщений `entity_id` окажется пустым, и клиент сможет
 сказать только «в деле что-то поменялось» вместо «вот ЭТО новое». Покрыто тестом
 `test_change_found_on_re_crawl_is_queued_for_publishing`, который гоняет настоящий обход.
+
+Вторая половина той же ловушки — на стороне ОТВЕТА. `entity_id` бесполезен, если карточка
+не отдаёт те же id: клиенту не с чем его сопоставить. Поэтому `EventOut`,
+`PlaceHistoryOut`, `DocumentOut` и `CourtSessionOut` отдают `id` наравне с `uid`, и это
+защищено тестом `test_card_exposes_the_ids_the_message_points_at` — он лежит среди тестов
+integration events, а не API, потому что это свойство контракта между сервисами, а ломают
+его с той стороны, где о контракте не помнят.
 
 У пропавших со страницы строк (`*_removed`) id читается нормально: сессия живёт с
 `expire_on_commit=False`.

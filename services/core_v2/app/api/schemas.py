@@ -120,6 +120,13 @@ class SideOut(_FromORM):
 class EventOut(_FromORM):
     """Событие «Истории состояний» в ответе API."""
 
+    # id строки в БД. Отдаётся ровно для одного: клиентский сервис узнаёт об изменениях
+    # сообщениями, где сущность названа этим же id (integration event, поле entity_id).
+    # Без него клиент может сказать «в деле что-то поменялось», но не «вот ЭТО новое».
+    #
+    # uid рядом остаётся и служит другому — сверке строк между обходами. Одно другое не
+    # заменяет. То же касается PlaceHistoryOut, DocumentOut и CourtSessionOut ниже.
+    id: int
     uid: uuid.UUID
     # Момент события со смещением («2026-08-19T10:00:00+03:00»). Времени у части порталов
     # нет — там это местная полночь; отличить её от события в 00:00 нельзя.
@@ -133,6 +140,8 @@ class EventOut(_FromORM):
 class PlaceHistoryOut(_FromORM):
     """Строка «Истории местонахождения» в ответе API."""
 
+    # id строки в БД: на него ссылается entity_id в integration event (см. EventOut).
+    id: int
     uid: uuid.UUID
     place_date: date  # NOT NULL в БД: входит в identity строки (см. place_history_uid)
     place_description: str
@@ -146,6 +155,8 @@ class DocumentOut(_FromORM):
     на файл парсер не сохраняет. Колонка в БД осталась пустой для совместимости.
     """
 
+    # id строки в БД: на него ссылается entity_id в integration event (см. EventOut).
+    id: int
     uid: uuid.UUID
     # NOT NULL в БД: дата входит в identity документа (см. document_uid).
     document_date: date
@@ -155,6 +166,8 @@ class DocumentOut(_FromORM):
 class CourtSessionOut(_FromORM):
     """Судебное заседание по делу."""
 
+    # id строки в БД: на него ссылается entity_id в integration event (см. EventOut).
+    id: int
     uid: uuid.UUID
     # NOT NULL в БД: дата И время входят в identity заседания (см. court_session_uid).
     session_date: datetime

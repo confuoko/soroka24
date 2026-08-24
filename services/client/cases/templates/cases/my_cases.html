@@ -31,6 +31,7 @@
   {% if rows %}
     <table>
       <tr>
+        <th>Новое</th>
         <th>Дело</th>
         <th>Суд</th>
         <th>Состояние</th>
@@ -41,7 +42,15 @@
         <th></th>
       </tr>
       {% for row in rows %}
-        <tr>
+        <tr{% if row.subscription.unread %} class="is-new"{% endif %}>
+          <td>
+            {# Главное, зачем человек сюда пришёл: есть ли что-то новое. #}
+            {% if row.subscription.unread %}
+              <strong class="badge">{{ row.subscription.unread }}</strong>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
           <td>
             <a href="{% url 'case-detail' row.subscription.core_case_id %}">
               {% if row.summary %}{{ row.summary.code }}{% else %}дело #{{ row.subscription.core_case_id }}{% endif %}

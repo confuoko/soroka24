@@ -22,6 +22,27 @@
       {% if case.uid %}<br>УИД: {{ case.uid }}{% endif %}
     </p>
 
+    {% if new_changes %}
+      {# То, чего пользователь ещё не видел. Показываем ОДИН раз: этим же запросом всё
+         помечается прочитанным, поэтому при следующем открытии блока уже не будет. #}
+      <div class="warn">
+        <strong>Новое с прошлого раза: {{ new_changes|length }}</strong>
+        <ul style="margin:.4rem 0 0 1.2rem">
+          {% for change in new_changes %}
+            <li>
+              {{ change.event_type }}
+              <span class="muted">— {{ change.occurred_at|date:"d.m.Y H:i" }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+        {% if new_field_changes %}
+          <div class="muted" style="margin-top:.3rem">
+            Изменились реквизиты дела ({{ new_field_changes }}).
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
+
     {# Ближайшее заседание — акцентный блок: это единственное, что человек хочет узнать
        быстрее всего. Заседание без результата = ещё не прошло. #}
     {% for session in case.court_sessions %}
@@ -68,9 +89,15 @@
       <table>
         <tr><th>Дата</th><th>Событие</th><th>Документ</th></tr>
         {% for event in case.events %}
-          <tr>
+          {# Подсвечиваем КОНКРЕТНЫЕ строки, а не рисуем «что-то изменилось» над карточкой:
+             в движении дела бывают десятки строк, и искать новую глазами — ровно то, от
+             чего сервис должен избавлять. #}
+          <tr{% if event.id in new_entity_ids %} class="is-new"{% endif %}>
             <td class="muted">{{ event.event_date|date:"d.m.Y H:i" }}</td>
-            <td>{{ event.state_description }}</td>
+            <td>
+              {{ event.state_description }}
+              {% if event.id in new_entity_ids %}<span class="new-mark">новое</span>{% endif %}
+            </td>
             <td class="muted">{{ event.document_str|default:"" }}</td>
           </tr>
         {% endfor %}
@@ -82,8 +109,11 @@
       <table>
         <tr><th>Дата</th><th>Место</th><th>Стадия</th><th>Результат</th></tr>
         {% for session in case.court_sessions %}
-          <tr>
-            <td class="muted">{{ session.session_date|date:"d.m.Y H:i" }}</td>
+          <tr{% if session.id in new_entity_ids %} class="is-new"{% endif %}>
+            <td class="muted">
+              {{ session.session_date|date:"d.m.Y H:i" }}
+              {% if session.id in new_entity_ids %}<span class="new-mark">новое</span>{% endif %}
+            </td>
             <td>{{ session.place|default:"—" }}</td>
             <td>{{ session.stage|default:"—" }}</td>
             <td>{{ session.result|default:"—" }}</td>
@@ -98,7 +128,13 @@
         <tr><th>Дата</th><th>Вид</th></tr>
         {% for document in case.documents %}
           {# Ни текстов, ни файлов: сервис их не хранит. Только даты и виды. #}
-          <tr><td class="muted">{{ document.document_date }}</td><td>{{ document.document_type }}</td></tr>
+          <tr{% if document.id in new_entity_ids %} class="is-new"{% endif %}>
+            <td class="muted">{{ document.document_date }}</td>
+            <td>
+              {{ document.document_type }}
+              {% if document.id in new_entity_ids %}<span class="new-mark">новое</span>{% endif %}
+            </td>
+          </tr>
         {% endfor %}
       </table>
     {% endif %}

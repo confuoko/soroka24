@@ -376,3 +376,22 @@ def test_message_carries_no_delivery_recipients(session, court) -> None:
     # нужен: это единственное состояние доставки, которое core вообще знает.
     assert "published_at" in columns
 
+
+
+def test_card_exposes_the_ids_the_message_points_at() -> None:
+    """Карточка отдаёт id тех сущностей, на которые ссылается entity_id сообщения.
+
+    Без этого поля entity_id декоративно: клиент знает, что появилась сущность 712, но в
+    карточке нет ничего, с чем это 712 сопоставить, — показать «вот ЭТО новое» он не может,
+    только «в деле что-то поменялось».
+
+    Тест стоит здесь, а не среди тестов API, потому что это свойство КОНТРАКТА между двумя
+    сервисами. Ломается оно с той стороны, где о контракте не помнят: схему ответа правят,
+    думая про карточку, а отвечает она заодно и за чужой unread.
+    """
+    from app.api.schemas import CourtSessionOut, DocumentOut, EventOut, PlaceHistoryOut
+
+    for schema in (EventOut, PlaceHistoryOut, DocumentOut, CourtSessionOut):
+        assert "id" in schema.model_fields, (
+            f"{schema.__name__} не отдаёт id — на него ссылается entity_id в сообщении"
+        )

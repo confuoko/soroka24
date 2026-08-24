@@ -31,6 +31,7 @@ import signal
 import pika
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from django.db import close_old_connections
 
 from cases.consumer import Outcome, handle
 
@@ -142,6 +143,17 @@ class Command(BaseCommand):
                 ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
                 stopping = True
                 return
+
+            # Процесс живёт часами, а соединение с БД у management-команды не
+            # переоткрывается само: CONN_MAX_AGE работает на границе HTTP-запроса, которой
+            # здесь нет. Перезапустили Postgres — и без этой строки consumer держал бы
+            # мёртвое соединение до собственного перезапуска.
+            #
+            # Стоит здесь, а не в cases/consumer.py, и это не придирка к слоям: внутри
+            # обработчика вызов рвал бы соединение, которое тесты держат в транзакции —
+            # там get_autocommit() не совпадает с настройкой, и Django закрывает соединение
+            # как непригодное.
+            close_old_connections()
 
             try:
                 outcome = handle(body)

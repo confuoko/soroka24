@@ -16,7 +16,9 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect
+from django.utils import timezone
 from django.views.generic import DetailView, FormView, ListView, View
 
 from cases import monitoring
@@ -40,9 +42,17 @@ class MyCasesView(LoginRequiredMixin, ListView):
     template_name = "cases/my_cases.html"
 
     def get_queryset(self):
-        return CaseSubscription.objects.filter(
-            user=self.request.user, is_active=True
-        ).order_by("-created_at")
+        return (
+            CaseSubscription.objects.filter(user=self.request.user, is_active=True)
+            .annotate(
+                # Одним запросом на всю страницу, а не по запросу на строку: без annotate
+                # шаблон дёргал бы базу на каждое дело в списке.
+                unread=Count("changes", filter=Q(changes__read_at__isnull=True))
+            )
+            # Дела с новостями наверх: это первое, зачем человек сюда пришёл. Внутри
+            # группы — свежие подписки выше.
+            .order_by("-unread", "-created_at")
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -223,14 +233,40 @@ class CaseDetailView(LoginRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        case_id = context["subscription"].core_case_id
+        subscription = context["subscription"]
         try:
-            context["case"] = core.get_case(case_id)
+            context["case"] = core.get_case(subscription.core_case_id)
         except core.CoreUnavailable:
             # Карточку показать нечем — но сказать об этом надо честно, а не отдавать 500.
             context["case"] = None
             context["core_unavailable"] = True
-        # Отметка изменений прочитанными появится здесь в Phase 6 (UserCaseChange).
+
+        # Сначала ЧИТАЕМ непрочитанное, и только потом помечаем прочитанным. Порядок
+        # существенный: пометь мы сначала — подсвечивать на этой же странице было бы уже
+        # нечего, а «открыл дело и не понял, что именно нового» — ровно тот случай, ради
+        # которого unread и заводился.
+        unread = list(
+            subscription.changes.filter(read_at__isnull=True).order_by("occurred_at")
+        )
+        context["new_changes"] = unread
+        # Множество id сущностей, появившихся с прошлого визита: по нему шаблон подсвечивает
+        # КОНКРЕТНЫЕ строки, а не рисует «что-то изменилось» над всей карточкой.
+        context["new_entity_ids"] = {
+            change.core_entity_id for change in unread if change.core_entity_id is not None
+        }
+        # У изменения скалярного поля сущности нет — про него можно сказать только
+        # «поменялись реквизиты», и это отдельный счётчик.
+        context["new_field_changes"] = sum(
+            1 for change in unread if change.core_entity_id is None
+        )
+
+        if unread:
+            # Для MVP допустимо: открытие страницы помечает прочитанным ВСЁ по этому делу
+            # (ТЗ §8). Одним UPDATE, без обхода строк.
+            subscription.changes.filter(read_at__isnull=True).update(
+                read_at=timezone.now()
+            )
+
         return context
 
 

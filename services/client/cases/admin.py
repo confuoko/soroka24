@@ -7,7 +7,7 @@
 """
 from django.contrib import admin
 
-from cases.models import CaseSubscription, PendingCaseSearch
+from cases.models import CaseSubscription, PendingCaseSearch, UserCaseChange
 
 
 @admin.register(CaseSubscription)
@@ -23,3 +23,21 @@ class PendingCaseSearchAdmin(admin.ModelAdmin):
     list_filter = ("resolved_at",)
     search_fields = ("core_task_id", "query", "user__username")
 
+
+@admin.register(UserCaseChange)
+class UserCaseChangeAdmin(admin.ModelAdmin):
+    """Изменения по делам, разложенные по пользователям.
+
+    Сюда заглядывают с двумя вопросами. «Почему у человека счётчик непрочитанного?» — видно
+    по read_at. И «почему счётчик удвоился?» — если такое случилось, здесь будут две строки
+    с одним integration_event_id, а значит сломался UNIQUE, а не доставка.
+    """
+
+    list_display = (
+        "id", "user", "subscription", "event_type",
+        "core_entity_id", "occurred_at", "read_at",
+    )
+    list_filter = ("event_type", "read_at")
+    search_fields = ("integration_event_id", "user__username", "subscription__core_case_id")
+    # Строки пишет consumer, read_at ставит страница дела. Править их руками незачем.
+    readonly_fields = ("integration_event_id", "occurred_at")
