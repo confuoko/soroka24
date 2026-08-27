@@ -1,12 +1,14 @@
 """Доступ к судебным заседаниям (CourtSession) в БД: детерминированный uid + сверка со страницей."""
 import uuid
-from datetime import datetime
+from datetime import date, datetime, timedelta
+from typing import Iterable, Optional
 
+from sqlalchemy import Row, func, select
 from sqlalchemy.orm import Session
 
 from app.timezones import to_utc
 from app.parsers.parsed_case import ParsedSession
-from app.models import Case, CourtSession
+from app.models import Case, Court, CourtSession
 
 # Фиксированный namespace для uid заседаний (задан один раз, менять нельзя — иначе uid
 # всех заседаний «поедут» и повторный парсинг перестанет их узнавать).
@@ -48,6 +50,59 @@ class CourtSessionRepository:
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def list_for_cases(
+        self,
+        case_ids: Iterable[int],
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None,
+    ) -> list[Row]:
+        """Заседания сразу нескольких дел — одним запросом, с номером дела и судом.
+
+        Ради календаря клиентского сервиса. Заседания у него разбросаны по всем подпискам
+        сразу, а получить их можно было только полной карточкой каждого дела — сотни
+        килобайт на дело и N запросов. Тот же N+1 по сети, ради устранения которого уже
+        существует CaseRepository.list_summaries.
+
+        Возвращает не CourtSession, а строки `(заседание, номер дела, название суда, пояс
+        суда)`. Джойн здесь, а не дозапрос на стороне клиента, ровно потому же: иначе
+        календарь на тридцать заседаний сходил бы в core тридцать один раз.
+
+        Границы date_from/date_to — по МЕСТНОМУ времени суда, а не по UTC, и обе
+        включительно. Иначе заседание во Владивостоке в 09:00 первого числа попало бы в
+        предыдущий месяц: в UTC этот момент приходится на 23:00 предыдущих суток. Дата на
+        странице суда — местная, и фильтр обязан совпадать с тем, что видит человек.
+
+        Отсутствующих id в ответе просто нет — как и у list_summaries: это список, и его
+        длина сама по себе осмысленный ответ.
+        """
+        ids = list(case_ids)
+        if not ids:
+            return []
+
+        # timestamptz → местное время суда (timestamp without time zone), ровно как на
+        # странице. Пояс берём из строки суда: у каждого дела он свой.
+        local_at = func.timezone(Court.timezone, CourtSession.session_date)
+
+        statement = (
+            select(CourtSession, Case.code, Court.name, Court.timezone)
+            .join(Case, CourtSession.case_id == Case.id)
+            .join(Court, Case.court_id == Court.id)
+            .where(CourtSession.case_id.in_(ids))
+        )
+        if date_from is not None:
+            statement = statement.where(local_at >= date_from)
+        if date_to is not None:
+            # Правая граница включительна: date_to это «по такое-то число», а сравнение
+            # идёт с моментом, а не с датой. Без сдвига на сутки заседание в 10:00
+            # последнего дня диапазона в ответ не попало бы.
+            statement = statement.where(local_at < date_to + timedelta(days=1))
+
+        # По моменту, а не по местному времени: календарь показывает одну ленту по всем
+        # судам сразу, и порядок в ней должен быть хронологическим. id — чтобы порядок был
+        # устойчив у заседаний, назначенных на одну минуту.
+        statement = statement.order_by(CourtSession.session_date, CourtSession.id)
+        return list(self._session.execute(statement))
 
     def sync_court_sessions(
         self, case: Case, sessions_data: list[ParsedSession]

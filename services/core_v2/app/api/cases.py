@@ -5,15 +5,12 @@
 """
 from fastapi import APIRouter, HTTPException, Query, status
 
+from app.api.ids import parse_ids
 from app.api.schemas import CaseDetailResponse, CaseSummaryResponse
 from app.database import session_scope
 from app.repositories import CaseRepository
 
 router = APIRouter(prefix="/cases", tags=["cases"])
-
-# Сколько дел отдаём одним запросом. Ограничение есть, потому что ids едут в строке
-# запроса, а она у прокси и серверов не бесконечна.
-MAX_SUMMARY_IDS = 500
 
 
 @router.get("", response_model=list[CaseSummaryResponse])
@@ -40,7 +37,7 @@ def list_case_summaries(
     раскладывает витрины по своим подпискам, а обещать порядок значило бы запретить себе
     отдавать их одним SQL.
     """
-    case_ids = _parse_ids(ids)
+    case_ids = parse_ids(ids)
     if not case_ids:
         return []
 
@@ -49,30 +46,6 @@ def list_case_summaries(
         # Собираем ответ, пока сессия ещё открыта: суд подтянут заранее, но выйти из
         # сессии до сборки значило бы полагаться на это молчаливо.
         return [CaseSummaryResponse.model_validate(case) for case in cases]
-
-
-def _parse_ids(raw: str) -> list[int]:
-    """Разобрать «10,17,481» в список id. Мусор — 422, а не молчаливый пропуск.
-
-    Молчаливо игнорировать нечисло нельзя: клиент увидел бы короткий список и решил, что
-    дела удалены, а на самом деле у него поехала сборка строки запроса.
-    """
-    parts = [part.strip() for part in raw.split(",")]
-    try:
-        parsed = [int(part) for part in parts if part]
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="ids must be a comma-separated list of integers",
-        )
-
-    unique = sorted(set(parsed))
-    if len(unique) > MAX_SUMMARY_IDS:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"at most {MAX_SUMMARY_IDS} ids per request",
-        )
-    return unique
 
 
 @router.get("/{case_id}", response_model=CaseDetailResponse)

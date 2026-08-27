@@ -108,6 +108,7 @@ def test_every_route_is_registered() -> None:
         "/cases/{case_id}",
         "/cases/{case_id}/summary",
         "/cases/{case_id}/events",
+        "/court_sessions",
         "/monitoring/cases",
     }
 

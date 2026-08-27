@@ -10,6 +10,7 @@ from fastapi import FastAPI
 
 from app.admin import setup_admin
 from app.api.cases import router as cases_router
+from app.api.court_sessions import router as court_sessions_router
 from app.api.events import router as events_router
 from app.api.monitoring import router as monitoring_router
 from app.api.search_case import router as search_case_router
@@ -22,6 +23,8 @@ app.include_router(search_case_router)
 app.include_router(cases_router)
 # Чтение потока изменений: GET /cases/{id}/events.
 app.include_router(events_router)
+# Заседания пачкой по нескольким делам: GET /court_sessions?case_ids=.
+app.include_router(court_sessions_router)
 # Состав регулярного обхода: PUT /monitoring/cases.
 app.include_router(monitoring_router)
 
